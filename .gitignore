@@ -1,0 +1,43 @@
+# Dart / Flutter ------------------------------------------------------------
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.genkit/
+
+# Flutter macOS (Xcode) -----------------------------------------------------
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+**/macos/.symlinks/
+**/macos/Runner.xcworkspace/xcuserdata/
+**/macos/Runner.xcodeproj/xcuserdata/
+**/macos/Runner.xcworkspace/xcshareddata/
+DerivedData/
+*.xcuserstate
+
+# IDE -----------------------------------------------------------------------
+.idea/
+.vscode/
+*.iml
+
+# macOS ---------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local secrets — never commit these ----------------------------------------
+.env
+.env.*
+*.local
+secrets.json
+service.json
+credentials.json
+*.pem
+*.key
+*.p12
+*.provisionprofile
+*.mobileprovision
+
+# Coverage ------------------------------------------------------------------
+coverage/

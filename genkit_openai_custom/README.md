@@ -1,0 +1,280 @@
+# genkit_openai_custom
+
+A Genkit Dart plugin for **OpenAI and OpenAI-compatible Chat Completions
+endpoints**, plus a bridge that serves models from an **OpenCode server**
+through `opencode_sdk_dart`.
+
+```dart
+import 'package:genkit/genkit.dart';
+import 'package:genkit_openai_custom/genkit_openai_custom.dart';
+
+Future<void> main() async {
+  final ai = Genkit(plugins: [openAI(), openCode()]);
+
+  final response = await ai.generate<String, OpenAIChatOptions>(
+    model: openAI.model('gpt-4o'),
+    prompt: 'Explain Dart extension types in two sentences.',
+  );
+  print(response.text);
+
+  final local = await ai.generate<String, OpenCodeModelOptions>(
+    model: openCode.model('kimi-k2.6'),
+    prompt: 'Summarize what OpenCode is.',
+  );
+  print(local.text);
+}
+```
+
+## The two handles
+
+| Handle | Backed by | Use it for |
+| --- | --- | --- |
+| `openAI(...)` | a direct HTTP + SSE Chat Completions client that reuses `opencode_sdk_dart`'s SSE decoder and cancellation primitives | OpenAI and any OpenAI-compatible host, with Genkit-owned tool calling and structured outputs |
+| `openCode()` | `opencode_sdk_dart`'s `OpenCodeClient` (local service discovery, model catalog, sessions, events) | models served by a local or remote OpenCode V2 server |
+
+Both handles are offline-first: constructing the plugin neither requires an API
+key nor performs network I/O, so `Genkit(plugins: [...])` always starts — even
+without `OPENAI_API_KEY` and without a running OpenCode server.
+
+## Registering the OpenAI-compatible plugin
+
+```dart
+final ai = Genkit(
+  plugins: [
+    // Standard OpenAI: reads OPENAI_API_KEY at request time.
+    openAI(),
+
+    // OpenAI-compatible host under its own namespace, with a custom catalog.
+    openAI(
+      name: 'groq',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      apiKey: Platform.environment['GROQ_API_KEY'],
+      dialect: OpenAICompatDialect.openRouter, // start from a preset, tweak fields
+      models: [
+        CustomModelDefinition(
+          name: 'llama-3.3-70b-versatile',
+          label: 'Llama 3.3 70B',
+          capabilities: ModelCapabilities(media: false),
+        ),
+      ],
+    ),
+
+    // Local Ollama: no key required.
+    openAI(name: 'ollama', dialect: OpenAICompatDialect.ollama),
+  ],
+);
+```
+
+Options and key resolution:
+
+- `name` — the namespace models are registered under (`<name>/<model>`).
+  Defaults to the dialect's `defaultNamespace` (`openai`).
+- `apiKey` / `apiKeyProvider` / `<dialect.apiKeyEnvVar>` — resolved in that
+  order at request time, never at construction time. `apiKeyRequired: false`
+  (for example in the `ollama` preset) skips the check entirely.
+- `baseUrl` — defaults to the dialect's `defaultBaseUrl`. A trailing
+  `/chat/completions` is tolerated and normalized away.
+- `models` — `CustomModelDefinition`s reported by `list()` and used as the
+  authoritative capability source for pre-flight checks.
+- `listModels` — when true (default), `GET /models` discovery feeds the Genkit
+  Dev UI; failures are logged and ignored.
+
+### Dialects
+
+`OpenAICompatDialect` describes how a host deviates from OpenAI's API. Presets:
+`openAI`, `deepSeek`, `xAI`, `openRouter`, `ollama`. Fields:
+
+| Field | Meaning |
+| --- | --- |
+| `defaultNamespace`, `defaultBaseUrl`, `apiKeyEnvVar`, `apiKeyRequired` | connection defaults |
+| `useLegacyMaxTokens` | send `max_tokens` instead of `max_completion_tokens` |
+| `supportsJsonSchema` | accept `response_format: {"type":"json_schema"}` |
+| `includeUsageInStream` | send `stream_options: {"include_usage": true}` |
+| `supportsReasoningEffort` | send `reasoning_effort` / `verbosity` |
+| `extraBody` | fields merged into every request body |
+
+### Chat options (`OpenAIChatOptions`)
+
+`temperature`, `topP`, `maxTokens`, `stop`, `presencePenalty`,
+`frequencyPenalty`, `seed`, `user`, `version` (model snapshot override),
+`jsonMode`, `strictSchema`, `includeUsageInStream`, `reasoningEffort`,
+`verbosity`, `visualDetailLevel`, and `extraBody` (per-request fields).
+
+## Chat models: features
+
+Text generation, streaming, multi-turn conversations, tool calling (Genkit owns
+the loop), and structured outputs all run through the standard Genkit APIs:
+
+```dart
+// Streaming (reasoning deltas arrive as ReasoningParts).
+final stream = ai.generateStream<String, OpenAIChatOptions>(
+  model: openAI.model('gpt-5.2'),
+  prompt: 'Write a haiku about Dart.',
+  config: OpenAIChatOptions(reasoningEffort: 'low'),
+);
+await for (final chunk in stream) {
+  for (final part in chunk.content) {
+    if (part.isReasoning) print('[thinking] ${part.reasoning}');
+    if (part.isText) print(part.text);
+  }
+}
+
+// Tool calling: define tools with Genkit and pass toolNames.
+ai.defineTool(
+  name: 'lookupPackage',
+  description: 'Looks up a package version on pub.dev.',
+  inputSchema: LookupInput.$schema,
+  outputSchema: SchemanticType.string(),
+  fn: (input, ctx) async => .response('1.0.0'),
+);
+final result = await ai.generate<String, OpenAIChatOptions>(
+  model: openAI.model('gpt-4o'),
+  prompt: 'What version is genkit?',
+  toolNames: ['lookupPackage'],
+);
+
+// Structured output.
+final review = await ai.generate<Review, OpenAIChatOptions>(
+  model: openAI.model('gpt-4o'),
+  prompt: 'Review this function...',
+  outputSchema: Review.$schema,
+);
+print(review.output?.score);
+```
+
+## Capability checks
+
+Requests are validated against `ModelCapabilities` **before** any network I/O,
+turning provider 400s into actionable errors:
+
+- images to a text-only model (`gpt-3.5`, `deepseek-chat`),
+- tools to a model without tool support (`o1-preview`),
+- `toolChoice` where it is unsupported,
+- structured output from a model without JSON output,
+- `reasoningEffort` to a model that is known not to reason.
+
+Checks run only for names the catalog knows (`curatedCapabilities`); unknown
+names pass through untouched so a new model is never blocked by stale metadata.
+`checkCapabilities: false` disables the checks, and a
+`CustomModelDefinition`'s capabilities are authoritative for its name.
+
+Reasoning models that reject `system` messages (o-series, gpt-5) get `developer`
+messages automatically.
+
+## Structured output details
+
+- `outputSchema` maps to `response_format: {"type":"json_schema"}` with the
+  schema inlined (`$defs`/`$ref` flattened) for hosts that accept it.
+- `strictSchema: true` additionally rewrites the schema for OpenAI strict mode
+  (`additionalProperties: false`, every property required). The default is
+  `false` because strict mode rejects optional fields.
+- Hosts without `json_schema` support (`supportsJsonSchema: false`) fall back
+  to `json_object` plus a schema instruction appended to the conversation.
+- `jsonMode: true` sends `json_object` when Genkit asked for no output config.
+
+## The OpenCode bridge (`openCode`)
+
+```dart
+final ai = Genkit(
+  plugins: [
+    // Local: discovers (or starts) the background service, no config needed.
+    openCode(),
+
+    // Remote: connect to a specific server.
+    openCode(
+      name: 'remote',
+      baseUrl: 'https://my-server:4096',
+      headers: {'Authorization': 'Basic ...'},
+    ),
+  ],
+);
+
+final models = await ai.listActions(); // real server catalog + capabilities
+final result = await ai.generate<String, OpenCodeModelOptions>(
+  model: openCode.model('kimi-k2.6'),
+  prompt: 'Hello!',
+  config: OpenCodeModelOptions(variant: 'high', agent: 'build'),
+);
+```
+
+How the bridge maps Genkit onto the server:
+
+| Genkit | OpenCode server |
+| --- | --- |
+| model discovery (`list()`) | `GET /api/model` (real capabilities, enabled flag) |
+| unary generate | `POST /api/experimental/generate` with a resolved `ModelRef` |
+| streaming | ephemeral session + `POST /api/session/{id}/prompt` + the shared event stream (`session.text.delta`, `session.reasoning.delta`, `session.text.ended`/`reasoning.ended` reconciliation, `session.step.ended` usage, `session.execution.*` completion) — the session is deleted afterwards |
+| cancellation | Genkit's `CancellationToken` bridged to the SDK's, tearing down requests |
+| sampling parameters | the server's own model configuration |
+
+Documented limitations of the bridge:
+
+- **Genkit tools are not routed through it.** The server's agent executes its
+  own tools, so requests carrying `toolNames` fail fast with `UNIMPLEMENTED`
+  and a pointer to `openAI()`.
+- Conversations are rendered into the server's prompt format
+  (`User:`/`Assistant:`/`Tool result:`); there is no message-array API.
+- Sampling options (`temperature`, ...) are not forwarded; use
+  `OpenCodeModelOptions` to select a `variant` or `agent` instead.
+
+The event stream is treated as best-effort. The shared SSE connection is
+live-only and can end mid-turn (reconnects, slow-consumer overflow, server
+restarts), so each streaming turn races the events against
+`POST /session/{id}/wait` plus an assistant-message check, and reconciles the
+final text with the server's own record of the message. A dropped event stream
+therefore delays the answer but never loses it.
+
+## OpenAI-compatible endpoints: compatibility notes
+
+1. **Model discovery** — not every host implements `GET /models`, and those
+   that do rarely return capabilities. Discovery is best-effort; explicit
+   `openAI.model('any-id', namespace: ...)` references always resolve.
+2. **Token limit field** — OpenAI requires `max_completion_tokens` for
+   o-series/gpt-5; several compatible hosts only understand `max_tokens`
+   (`useLegacyMaxTokens`).
+3. **Structured output** — `json_schema` is not universal; when unsupported the
+   plugin degrades to `json_object` plus a schema instruction.
+4. **Streaming usage** — OpenAI reports usage on a final SSE frame via
+   `stream_options.include_usage`; minimal proxies reject the field
+   (`includeUsageInStream: false`).
+5. **Tool schemas** — tool inputs must be object schemas with resolvable
+   references. `$defs`/`$ref` are inlined; recursive schemas are sent as-is and
+   rejected by hosts (like xAI) that do not resolve references.
+6. **Reasoning replay** — `ReasoningPart`s are never sent back in conversation
+   history; most hosts reject or ignore them (DeepSeek rejects
+   `reasoning_content` outright).
+7. **Media** — images must be `http(s)` or `data:` URLs; local file paths are
+   rejected with an actionable error. Non-image media must be `data:` URLs.
+
+## Relationship to `genkit_openai`
+
+This package was built after reviewing the first-party `genkit_openai`
+(Apache-2.0). It is not a fork: the wire format is implemented here directly,
+and the OpenCode bridge does not exist upstream. Feature differences worth
+knowing:
+
+| Area | `genkit_openai` | this package |
+| --- | --- | --- |
+| Host quirks | internal `OpenAIProvider`, not extensible | public `OpenAICompatDialect` + presets |
+| Client stack | `openai_dart` + body-rewrite interceptor | direct JSON/SSE via `opencode_sdk_dart`'s `decodeSseFrames` and cancellation pattern |
+| Capability checks | `reasoningEffort` only | tools, toolChoice, media, JSON output, reasoningEffort |
+| Structured output | `strict: false` only | `strictSchema` with strict-mode schema rewriting |
+| Streaming usage | always `include_usage` | configurable per dialect and per request |
+| OpenCode server models | not supported | `openCode()` bridge with discovery, sessions, events |
+| Constrained-generation simulation middleware | supported | not in scope; the `json_object` fallback appends a schema instruction instead |
+| Speech / transcription / embeddings | supported | not in scope (v1) |
+| Model catalog | large curated catalog | deliberately small pattern catalog; unknown names pass through |
+
+Both packages coexist: `genkit_openai` remains the right choice for speech,
+transcription, and embeddings; this package covers Chat Completions,
+structured output, and the OpenCode bridge.
+
+## Development
+
+```bash
+dart pub get
+dart run build_runner build   # regenerates lib/src/options.g.dart
+dart analyze
+dart test
+dart run tool/live_check.dart # live smoke test against the local OpenCode server
+```

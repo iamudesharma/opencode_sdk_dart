@@ -1,0 +1,23 @@
+name: gym_coach
+description: "A macOS gym coach that streams workout and nutrition plans from the OpenCode server via Genkit."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  genkit: ^1.0.0
+  genkit_openai_custom:
+    path: ../genkit_openai_custom
+  marionette_flutter: 0.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
