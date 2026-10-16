@@ -279,6 +279,10 @@ class ChatController extends ChangeNotifier {
   }
 
   /// Reloads the transcript of the active session.
+  ///
+  /// Server messages are merged with in-flight streaming messages instead of
+  /// replacing the list, so a reconcile that races live deltas never drops
+  /// text or tool state that has already arrived.
   Future<void> loadMessages() async {
     if (_disposed) return;
     final client = _client;
@@ -297,7 +301,7 @@ class ChatController extends ChangeNotifier {
         if (message != null && !message.isEmpty) loaded.add(message);
       }
       if (activeSession?.id == session.id) {
-        messages = loaded;
+        messages = mergeLoadedMessages(loaded, messages);
       }
     } on Object catch (error) {
       connectionError = _describe(error);
@@ -430,10 +434,14 @@ class ChatController extends ChangeNotifier {
         files: files.isEmpty ? null : files,
       );
       // The server admits the message; refresh shortly to replace the echo
-      // with the recorded user message.
+      // with the recorded user message. While the turn is still running the
+      // live deltas own the transcript and the completion reconcile replaces
+      // the list when the step ends, so this refetch is skipped.
       unawaited(
         Future<void>.delayed(const Duration(milliseconds: 400), () {
-          if (activeSession?.id == sentSessionID) return loadMessages();
+          if (activeSession?.id == sentSessionID && !activeBusy) {
+            return loadMessages();
+          }
           return Future<void>.value();
         }),
       );
@@ -846,4 +854,25 @@ class ChatController extends ChangeNotifier {
     client?.close();
     super.dispose();
   }
+}
+
+/// Merges a freshly loaded transcript with in-flight streaming messages.
+///
+/// The server's record of a turn can lag the live event stream, so replacing
+/// the list outright would drop text or tool state that has already arrived.
+/// A live streaming message wins over its server version, and one the server
+/// has not recorded yet is kept at the end.
+@visibleForTesting
+List<ChatMessage> mergeLoadedMessages(
+  List<ChatMessage> loaded,
+  List<ChatMessage> current,
+) {
+  final live = <String, ChatMessage>{
+    for (final message in current)
+      if (message.streaming) message.id: message,
+  };
+  return [
+    for (final message in loaded) live.remove(message.id) ?? message,
+    ...live.values,
+  ];
 }

@@ -451,7 +451,7 @@ class CockpitController extends ChangeNotifier {
         if (message != null && !message.isEmpty) loaded.add(message);
       }
       if (activeSession?.id == session.id) {
-        messages = loaded;
+        messages = mergeLoadedMessages(loaded, messages);
         olderMessagesCursor = response.cursor.previous;
       }
     } on Object catch (error) {
@@ -590,9 +590,14 @@ class CockpitController extends ChangeNotifier {
     try {
       await client.session.prompt(sessionID: target.id, text: text);
       final sentSessionID = target.id;
+      // While the turn is still running the live deltas own the transcript
+      // and the completion reconcile replaces the list when the step ends,
+      // so this echo-refresh is skipped (it used to clobber streamed text).
       unawaited(
         Future<void>.delayed(const Duration(milliseconds: 400), () {
-          if (activeSession?.id == sentSessionID) return loadMessages();
+          if (activeSession?.id == sentSessionID && !activeBusy) {
+            return loadMessages();
+          }
           return Future<void>.value();
         }),
       );
@@ -1783,4 +1788,25 @@ final class PaletteCommand {
   final String label;
   final IconData icon;
   final void Function() run;
+}
+
+/// Merges a freshly loaded transcript with in-flight streaming messages.
+///
+/// The server's record of a turn can lag the live event stream, so replacing
+/// the list outright would drop text or tool state that has already arrived.
+/// A live streaming message wins over its server version, and one the server
+/// has not recorded yet is kept at the end.
+@visibleForTesting
+List<ChatMessage> mergeLoadedMessages(
+  List<ChatMessage> loaded,
+  List<ChatMessage> current,
+) {
+  final live = <String, ChatMessage>{
+    for (final message in current)
+      if (message.streaming) message.id: message,
+  };
+  return [
+    for (final message in loaded) live.remove(message.id) ?? message,
+    ...live.values,
+  ];
 }
