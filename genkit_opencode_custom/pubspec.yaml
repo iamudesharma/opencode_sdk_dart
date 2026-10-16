@@ -1,7 +1,8 @@
-name: genkit_openai_custom
+name: genkit_opencode_custom
 description: >-
-  Genkit Dart plugin for OpenAI and OpenAI-compatible Chat Completions
-  endpoints, plus an OpenCode server bridge powered by opencode_sdk_dart.
+  Genkit Dart plugin for OpenCode: serves models from a local or remote
+  OpenCode server through opencode_sdk_dart, with an OpenAI-compatible
+  Chat Completions client (openAI()) as a companion handle.
 version: 0.1.0
 publish_to: none
 

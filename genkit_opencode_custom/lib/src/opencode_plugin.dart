@@ -1,4 +1,4 @@
-// Copyright 2026 The genkit_openai_custom authors.
+// Copyright 2026 The genkit_opencode_custom authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ import 'errors.dart';
 import 'genkit_aliases.dart';
 import 'options.dart';
 
-final _logger = Logger('genkit_opencode');
+final _logger = Logger('genkit_opencode_custom');
 
 /// The handle used to register the OpenCode plugin and reference its models.
 ///

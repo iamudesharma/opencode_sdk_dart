@@ -1,27 +1,29 @@
-# genkit_openai_custom
+# genkit_opencode_custom
 
-A Genkit Dart plugin for **OpenAI and OpenAI-compatible Chat Completions
-endpoints**, plus a bridge that serves models from an **OpenCode server**
-through `opencode_sdk_dart`.
+A Genkit Dart plugin for **OpenCode**: it serves models from a local or remote
+**OpenCode server** through `opencode_sdk_dart`, with an
+**OpenAI-compatible Chat Completions** client as a companion handle.
 
 ```dart
 import 'package:genkit/genkit.dart';
-import 'package:genkit_openai_custom/genkit_openai_custom.dart';
+import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
 
 Future<void> main() async {
-  final ai = Genkit(plugins: [openAI(), openCode()]);
+  final ai = Genkit(plugins: [openCode()]);
 
-  final response = await ai.generate<String, OpenAIChatOptions>(
-    model: openAI.model('gpt-4o'),
-    prompt: 'Explain Dart extension types in two sentences.',
-  );
-  print(response.text);
-
+  // Models from your local OpenCode server (discovered automatically).
   final local = await ai.generate<String, OpenCodeModelOptions>(
     model: openCode.model('kimi-k2.6'),
     prompt: 'Summarize what OpenCode is.',
   );
   print(local.text);
+
+  // OpenAI and OpenAI-compatible hosts use the companion handle.
+  final response = await ai.generate<String, OpenAIChatOptions>(
+    model: openAI.model('gpt-4o'),
+    prompt: 'Explain Dart extension types in two sentences.',
+  );
+  print(response.text);
 }
 ```
 
@@ -29,14 +31,66 @@ Future<void> main() async {
 
 | Handle | Backed by | Use it for |
 | --- | --- | --- |
-| `openAI(...)` | a direct HTTP + SSE Chat Completions client that reuses `opencode_sdk_dart`'s SSE decoder and cancellation primitives | OpenAI and any OpenAI-compatible host, with Genkit-owned tool calling and structured outputs |
 | `openCode()` | `opencode_sdk_dart`'s `OpenCodeClient` (local service discovery, model catalog, sessions, events) | models served by a local or remote OpenCode V2 server |
+| `openAI(...)` | a direct HTTP + SSE Chat Completions client that reuses `opencode_sdk_dart`'s SSE decoder and cancellation primitives | OpenAI and any OpenAI-compatible host, with Genkit-owned tool calling and structured outputs |
 
 Both handles are offline-first: constructing the plugin neither requires an API
 key nor performs network I/O, so `Genkit(plugins: [...])` always starts — even
 without `OPENAI_API_KEY` and without a running OpenCode server.
 
-## Registering the OpenAI-compatible plugin
+## The OpenCode bridge (`openCode`)
+
+```dart
+final ai = Genkit(
+  plugins: [
+    // Local: discovers (or starts) the background service, no config needed.
+    openCode(),
+
+    // Remote: connect to a specific server.
+    openCode(
+      name: 'remote',
+      baseUrl: 'https://my-server:4096',
+      headers: {'Authorization': 'Basic ...'},
+    ),
+  ],
+);
+
+final models = await ai.listActions(); // real server catalog + capabilities
+final result = await ai.generate<String, OpenCodeModelOptions>(
+  model: openCode.model('kimi-k2.6'),
+  prompt: 'Hello!',
+  config: OpenCodeModelOptions(variant: 'high', agent: 'build'),
+);
+```
+
+How the bridge maps Genkit onto the server:
+
+| Genkit | OpenCode server |
+| --- | --- |
+| model discovery (`list()`) | `GET /api/model` (real capabilities, enabled flag) |
+| unary generate | `POST /api/experimental/generate` with a resolved `ModelRef` |
+| streaming | ephemeral session + `POST /api/session/{id}/prompt` + the shared event stream (`session.text.delta`, `session.reasoning.delta`, `session.text.ended`/`reasoning.ended` reconciliation, `session.step.ended` usage, `session.execution.*` completion) — the session is deleted afterwards |
+| cancellation | Genkit's `CancellationToken` bridged to the SDK's, tearing down requests |
+| sampling parameters | the server's own model configuration |
+
+Documented limitations of the bridge:
+
+- **Genkit tools are not routed through it.** The server's agent executes its
+  own tools, so requests carrying `toolNames` fail fast with `UNIMPLEMENTED`
+  and a pointer to `openAI()`.
+- Conversations are rendered into the server's prompt format
+  (`User:`/`Assistant:`/`Tool result:`); there is no message-array API.
+- Sampling options (`temperature`, ...) are not forwarded; use
+  `OpenCodeModelOptions` to select a `variant` or `agent` instead.
+
+The event stream is treated as best-effort. The shared SSE connection is
+live-only and can end mid-turn (reconnects, slow-consumer overflow, server
+restarts), so each streaming turn races the events against
+`POST /session/{id}/wait` plus an assistant-message check, and reconciles the
+final text with the server's own record of the message. A dropped event stream
+therefore delays the answer but never loses it.
+
+## Registering the OpenAI-compatible plugin (`openAI`)
 
 ```dart
 final ai = Genkit(
@@ -172,58 +226,6 @@ messages automatically.
   to `json_object` plus a schema instruction appended to the conversation.
 - `jsonMode: true` sends `json_object` when Genkit asked for no output config.
 
-## The OpenCode bridge (`openCode`)
-
-```dart
-final ai = Genkit(
-  plugins: [
-    // Local: discovers (or starts) the background service, no config needed.
-    openCode(),
-
-    // Remote: connect to a specific server.
-    openCode(
-      name: 'remote',
-      baseUrl: 'https://my-server:4096',
-      headers: {'Authorization': 'Basic ...'},
-    ),
-  ],
-);
-
-final models = await ai.listActions(); // real server catalog + capabilities
-final result = await ai.generate<String, OpenCodeModelOptions>(
-  model: openCode.model('kimi-k2.6'),
-  prompt: 'Hello!',
-  config: OpenCodeModelOptions(variant: 'high', agent: 'build'),
-);
-```
-
-How the bridge maps Genkit onto the server:
-
-| Genkit | OpenCode server |
-| --- | --- |
-| model discovery (`list()`) | `GET /api/model` (real capabilities, enabled flag) |
-| unary generate | `POST /api/experimental/generate` with a resolved `ModelRef` |
-| streaming | ephemeral session + `POST /api/session/{id}/prompt` + the shared event stream (`session.text.delta`, `session.reasoning.delta`, `session.text.ended`/`reasoning.ended` reconciliation, `session.step.ended` usage, `session.execution.*` completion) — the session is deleted afterwards |
-| cancellation | Genkit's `CancellationToken` bridged to the SDK's, tearing down requests |
-| sampling parameters | the server's own model configuration |
-
-Documented limitations of the bridge:
-
-- **Genkit tools are not routed through it.** The server's agent executes its
-  own tools, so requests carrying `toolNames` fail fast with `UNIMPLEMENTED`
-  and a pointer to `openAI()`.
-- Conversations are rendered into the server's prompt format
-  (`User:`/`Assistant:`/`Tool result:`); there is no message-array API.
-- Sampling options (`temperature`, ...) are not forwarded; use
-  `OpenCodeModelOptions` to select a `variant` or `agent` instead.
-
-The event stream is treated as best-effort. The shared SSE connection is
-live-only and can end mid-turn (reconnects, slow-consumer overflow, server
-restarts), so each streaming turn races the events against
-`POST /session/{id}/wait` plus an assistant-message check, and reconciles the
-final text with the server's own record of the message. A dropped event stream
-therefore delays the answer but never loses it.
-
 ## OpenAI-compatible endpoints: compatibility notes
 
 1. **Model discovery** — not every host implements `GET /models`, and those
@@ -255,19 +257,19 @@ knowing:
 
 | Area | `genkit_openai` | this package |
 | --- | --- | --- |
+| OpenCode server models | not supported | `openCode()` bridge with discovery, sessions, events |
 | Host quirks | internal `OpenAIProvider`, not extensible | public `OpenAICompatDialect` + presets |
 | Client stack | `openai_dart` + body-rewrite interceptor | direct JSON/SSE via `opencode_sdk_dart`'s `decodeSseFrames` and cancellation pattern |
 | Capability checks | `reasoningEffort` only | tools, toolChoice, media, JSON output, reasoningEffort |
 | Structured output | `strict: false` only | `strictSchema` with strict-mode schema rewriting |
 | Streaming usage | always `include_usage` | configurable per dialect and per request |
-| OpenCode server models | not supported | `openCode()` bridge with discovery, sessions, events |
 | Constrained-generation simulation middleware | supported | not in scope; the `json_object` fallback appends a schema instruction instead |
 | Speech / transcription / embeddings | supported | not in scope (v1) |
 | Model catalog | large curated catalog | deliberately small pattern catalog; unknown names pass through |
 
 Both packages coexist: `genkit_openai` remains the right choice for speech,
-transcription, and embeddings; this package covers Chat Completions,
-structured output, and the OpenCode bridge.
+transcription, and embeddings; this package covers OpenCode-backed models,
+Chat Completions, structured output, and the OpenCode bridge.
 
 ## Development
 

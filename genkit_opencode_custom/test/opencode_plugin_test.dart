@@ -1,4 +1,4 @@
-// Copyright 2026 The genkit_openai_custom authors.
+// Copyright 2026 The genkit_opencode_custom authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import 'package:genkit/genkit.dart';
-import 'package:genkit_openai_custom/genkit_openai_custom.dart';
+import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' as sdk;
 import 'package:schemantic/schemantic.dart';
 import 'package:test/test.dart';

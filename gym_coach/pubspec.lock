@@ -115,10 +115,10 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.0"
-  genkit_openai_custom:
+  genkit_opencode_custom:
     dependency: "direct main"
     description:
-      path: "../genkit_openai_custom"
+      path: "../genkit_opencode_custom"
       relative: true
     source: path
     version: "0.1.0"

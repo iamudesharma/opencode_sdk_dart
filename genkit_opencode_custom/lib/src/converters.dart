@@ -1,4 +1,4 @@
-// Copyright 2026 The genkit_openai_custom authors.
+// Copyright 2026 The genkit_opencode_custom authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import 'catalog.dart';
 import 'dialect.dart';
 import 'options.dart';
 
-final _logger = Logger('genkit_openai_custom');
+final _logger = Logger('genkit_opencode_custom.openai');
 
 /// Translates between Genkit wire types and OpenAI Chat Completions JSON.
 abstract final class OpenAIConverter {

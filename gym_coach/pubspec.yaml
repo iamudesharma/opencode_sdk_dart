@@ -10,8 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   genkit: ^1.0.0
-  genkit_openai_custom:
-    path: ../genkit_openai_custom
+  genkit_opencode_custom:
+    path: ../genkit_opencode_custom
   marionette_flutter: 0.6.0
 
 dev_dependencies:

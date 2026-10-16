@@ -2,7 +2,7 @@
 
 A macOS app that dynamically generates gym plans (and an optional food plan)
 with the free **LongCat 2.5 Preview Free** model running on your local
-**OpenCode** server — through the `genkit_openai_custom` Genkit plugin built in
+**OpenCode** server — through the `genkit_opencode_custom` Genkit plugin built in
 this repo.
 
 ```

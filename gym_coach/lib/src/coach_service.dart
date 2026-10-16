@@ -2,7 +2,7 @@
 library;
 
 import 'package:genkit/genkit.dart';
-import 'package:genkit_openai_custom/genkit_openai_custom.dart';
+import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
 
 import 'plan_request.dart';
 

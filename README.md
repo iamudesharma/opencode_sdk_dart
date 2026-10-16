@@ -290,8 +290,9 @@ lib/
   src/generated/                  # models + 28 resources + client (generated)
 chat_app/                         # minimal macOS chat client
 opencode_cockpit/                 # full macOS workbench (projects, git, PTY)
-genkit_openai_custom/             # Genkit Dart plugin: OpenAI + OpenAI-compatible
-                                  #   endpoints and an OpenCode server bridge
+genkit_opencode_custom/           # Genkit Dart plugin: OpenCode server bridge
+                                  #   (openCode()) through this SDK, plus an
+                                  #   OpenAI-compatible handle (openAI())
 gym_coach/                        # macOS app: streams workout + food plans from
                                   #   an OpenCode model through the plugin above
 tool/
