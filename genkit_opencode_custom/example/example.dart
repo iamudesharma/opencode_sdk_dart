@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:genkit/genkit.dart';
 import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
+import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' as sdk;
 import 'package:schemantic/schemantic.dart';
 
 part 'example.g.dart';
@@ -49,6 +50,12 @@ void main() async {
 
       // Models from the local (or remote) OpenCode server.
       openCode(),
+
+      // `webSearchTool: true` registers the server's web search as a Genkit
+      // tool named `<name>/websearch` (here `opencode-search/websearch`).
+      // It is usable from models of any plugin; the bridge's own models run
+      // the server's agent loop instead.
+      openCode(name: 'opencode-search', webSearchTool: true),
     ],
   );
 
@@ -126,4 +133,100 @@ void main() async {
     prompt: 'Summarize what OpenCode is in one sentence.',
   );
   print(openCodeResult.text);
+
+  // 7. Persistent session multi-turn through the bridge: both generations
+  // share one server session, so the follow-up remembers the first turn.
+  final bridgeClient = await sdk.OpenCodeClient.connectLocal();
+  final bridgeSession = await bridgeClient.session.create(
+    title: 'genkit bridge example',
+  );
+  final sessionOptions = OpenCodeModelOptions(
+    sessionID: bridgeSession.id.value,
+  );
+  final remembered = await ai.generate<String, OpenCodeModelOptions>(
+    model: openCode.model('kimi-k2.6'),
+    prompt: 'Remember the number 42. Reply with just "ok".',
+    config: sessionOptions,
+  );
+  print('turn 1: ${remembered.text}');
+  final recall = await ai.generate<String, OpenCodeModelOptions>(
+    model: openCode.model('kimi-k2.6'),
+    prompt: 'Which number did I ask you to remember? Reply with the number.',
+    config: sessionOptions,
+  );
+  print('turn 2: ${recall.text}');
+  bridgeClient.close();
+
+  // 8. Structured output through the bridge: the schema travels as JSON
+  // instructions and Genkit parses the response.
+  final bridgeReview = await ai.generate<Review, OpenCodeModelOptions>(
+    model: openCode.model('kimi-k2.6'),
+    prompt: 'Review this code: int add(int a, int b) => a + b;',
+    outputSchema: Review.$schema,
+  );
+  final bridgeOutput = bridgeReview.output;
+  if (bridgeOutput != null) {
+    print('bridge review: ${bridgeOutput.score}/10 — ${bridgeOutput.summary}');
+  }
+
+  // 9. Embeddings through the OpenAI handle. `document:` embeds one document;
+  // the `documents:` form is the batch call (Genkit's `embedMany`).
+  final vector = await ai.embed(
+    embedder: openAI.embedder('text-embedding-3-small'),
+    document: DocumentData(
+      content: [TextPart(text: 'Genkit bridges OpenCode and OpenAI hosts.')],
+    ),
+  );
+  print('embedding: ${vector.first.embedding.length} dimensions');
+
+  final batch = await ai.embed(
+    embedder: openAI.embedder('text-embedding-3-small'),
+    documents: [
+      DocumentData(content: [TextPart(text: 'first document')]),
+      DocumentData(content: [TextPart(text: 'second document')]),
+    ],
+  );
+  print('batch: ${batch.length} embeddings');
+
+  // 10. Speech: `tts-1` returns one audio MediaPart as a base64 data URL.
+  final speech = await ai.generate<String, OpenAISpeechOptions>(
+    model: openAI.speechModel('tts-1'),
+    prompt: 'OpenCode and Genkit, together on one phone.',
+  );
+  final audio = speech.media;
+  final audioData = audio == null ? null : Uri.parse(audio.url).data;
+  print(
+    'speech: ${audioData?.contentAsBytes().length ?? 0} bytes '
+    '(${audioData?.mimeType})',
+  );
+
+  // 11. Transcription (needs an audio file): `whisper-1` takes the audio as a
+  // base64 data URL in a media part and answers with the transcript text.
+  //
+  //   final transcript = await ai.generate<String, OpenAITranscriptionOptions>(
+  //     model: openAI.transcriptionModel('whisper-1'),
+  //     messages: [
+  //       Message(
+  //         role: Role.user,
+  //         content: [
+  //           MediaPart(
+  //             media: Media(
+  //               contentType: 'audio/mpeg',
+  //               url: 'data:audio/mpeg;base64,'
+  //                   '${base64Encode(File('speech.mp3').readAsBytesSync())}',
+  //             ),
+  //           ),
+  //         ],
+  //       ),
+  //     ],
+  //   );
+  //   print(transcript.text);
+
+  // 12. Dialect presets for other OpenAI-compatible hosts — each registers
+  // its own namespace and reads its own API key environment variable:
+  //
+  //   openAI(dialect: OpenAICompatDialect.groq)      // GROQ_API_KEY
+  //   openAI(dialect: OpenAICompatDialect.together)  // TOGETHER_API_KEY
+  //   openAI(dialect: OpenAICompatDialect.mistral)   // MISTRAL_API_KEY
+  //   openAI(dialect: OpenAICompatDialect.lmStudio)  // local, no key needed
 }

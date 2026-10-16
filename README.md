@@ -72,6 +72,10 @@ Future<void> main() async {
 `OpenCode.connectLocal()` is the same entry point exported as a static on the
 `OpenCode` helper class, matching the reference naming.
 
+A complete, runnable tour lives in [`example/main.dart`](example/main.dart):
+`dart run example/main.dart` connects, streams a turn with deltas and step
+usage, and lists recent sessions.
+
 ## Working with resources
 
 Method arguments are named and flattened, so request bodies read as plain
@@ -319,6 +323,35 @@ await OpenCodeService.ensure(
 On the web, discovery throws `UnsupportedError`; connect to a reachable server
 directly instead.
 
+## Phone access over Wi-Fi
+
+All three apps build for the web, and `tool/lan_host.dart` serves those builds
+plus a reverse proxy for the OpenCode API, so a phone on the same Wi-Fi can use
+them without any build-time configuration:
+
+```sh
+# one-time, from each app directory you want to use on the phone:
+cd chat_app && flutter build web --release --base-href /chat/
+# gym_coach uses --base-href /openfit/, opencode_cockpit uses /cockpit/
+
+# from the repository root: start the host (discovers or starts the service)
+dart run tool/lan_host.dart            # --port 8080 --host 0.0.0.0
+```
+
+The host prints the LAN URL for each app plus an ASCII QR code of the index;
+scan it and open `http://<lan-ip>:8080/chat/` (or `/openfit/`, `/cockpit/`).
+Missing web builds render a placeholder page with the exact
+`flutter build web` command to run. Keep the host running while you use the
+phone; stopping it leaves the OpenCode service untouched.
+
+The `/api/...` proxy injects the service's Basic-auth headers, forwards
+methods, headers, and bodies, streams responses (including SSE) without
+buffering, and upgrades PTY WebSockets. File and photo attachments from the web
+apps go through `POST /_upload` — raw bytes plus an `x-filename` header — which
+stores the file under `<system temp>/openfit-uploads/` and answers
+`{"path": "<absolute path>"}`, the server-local path the OpenCode API expects
+for attachments.
+
 ## Regenerating the SDK
 
 The entire `lib/src/generated` tree is produced from `openapi/openapi.json`:
@@ -340,6 +373,7 @@ paths, binary bodies, SSE endpoints, and envelope shapes.
 ```sh
 dart test                    # unit suite with mocked HTTP
 dart run tool/live_smoke.dart  # read-only checks against a running server
+dart run example/main.dart   # end-to-end tour: streaming turn + pagination
 ```
 
 The unit suite covers models, unions, error decoding, query/URL encoding,
@@ -365,8 +399,11 @@ genkit_opencode_custom/           # Genkit Dart plugin: OpenCode server bridge
                                   #   OpenAI-compatible handle (openAI())
 gym_coach/                        # macOS app: typed workout + food plans (with
                                   #   a live-text mode) from an OpenCode model
+example/
+  main.dart                       # SDK tour: streaming turn, step usage, pagination
 tool/
   generate.dart                   # OpenAPI 3.1 -> Dart 3 code generator
+  lan_host.dart                   # LAN host: serves the web builds + proxies the API
   live_smoke.dart                 # live read-only smoke test
 openapi/openapi.json              # pinned contract snapshot
 ```
