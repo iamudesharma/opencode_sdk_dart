@@ -9,7 +9,9 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     self.title = "OpenCode Chat"
-    self.minSize = NSSize(width: 900, height: 600)
+    // Narrow enough for the drawer layout to kick in below the 760 px
+    // breakpoint.
+    self.minSize = NSSize(width: 420, height: 540)
     self.setContentSize(NSSize(width: 1180, height: 780))
     self.center()
 

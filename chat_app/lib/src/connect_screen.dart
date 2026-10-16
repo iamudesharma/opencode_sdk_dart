@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -96,9 +97,16 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.search_rounded, size: 18),
+                    : Icon(
+                        kIsWeb ? Icons.lan_rounded : Icons.search_rounded,
+                        size: 18,
+                      ),
                 label: Text(
-                  connecting ? 'Connecting\u2026' : 'Find local service',
+                  connecting
+                      ? 'Connecting\u2026'
+                      : kIsWeb
+                          ? 'Use this server'
+                          : 'Find local service',
                 ),
               ),
               const SizedBox(height: 16),
@@ -134,7 +142,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 onTap: () => setState(() => _manual = true),
                 onSubmitted: (_) => _connectManual(),
                 decoration: InputDecoration(
-                  hintText: 'http://localhost:4096',
+                  hintText: kIsWeb
+                      ? 'http://192.168.1.20:4096'
+                      : 'http://localhost:4096',
                   prefixIcon: const Icon(Icons.link_rounded, size: 18),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -174,7 +184,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
               ],
               const SizedBox(height: 18),
               Text(
-                'The local service is started automatically when needed.',
+                kIsWeb
+                    ? 'This app is served by your LAN host; requests go to '
+                        'the same origin.'
+                    : 'The local service is started automatically when needed.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.labelSmall
                     ?.copyWith(color: theme.colorScheme.outline),

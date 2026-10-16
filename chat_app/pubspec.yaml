@@ -1,5 +1,5 @@
 name: opencode_chat
-description: "A macOS chat client for OpenCode, built with opencode_sdk_dart."
+description: "A chat client for OpenCode on macOS and the web, built with opencode_sdk_dart."
 publish_to: 'none'
 version: 0.1.0+1
 
@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  file_selector: ^1.0.2
+  http: ^1.2.0
   opencode_sdk_dart:
     path: ../
 

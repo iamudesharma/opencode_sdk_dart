@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import 'chat_models.dart';
@@ -17,12 +18,18 @@ class ChatController extends ChangeNotifier {
   StreamSubscription<OpenCodeEvent>? _events;
   Timer? _reconnectTimer;
   Timer? _sessionRefreshDebounce;
+  Timer? _notifyTimer;
+  bool _notifyPending = false;
   bool _disposed = false;
 
   ChatConnection connection = ChatConnection.idle;
   String? connectionError;
   String? serverVersion;
   Uri? baseUrl;
+
+  /// Current theme mode; toggled from the header.
+  final ValueNotifier<ThemeMode> themeMode =
+      ValueNotifier<ThemeMode>(ThemeMode.dark);
 
   /// Sessions ordered newest first.
   List<SessionInfo> sessions = const [];
@@ -54,11 +61,29 @@ class ChatController extends ChangeNotifier {
   /// Whether a send request is in flight.
   bool sending = false;
 
-  /// The underlying client, when connected.
-  /// Notifies listeners unless the controller was disposed.
+  /// Schedules a listener notification for the end of the current frame.
+  ///
+  /// Notifications are coalesced: listeners hear about at most one change per
+  /// frame (~16 ms), and never after [dispose].
   void _notify() {
     if (_disposed) return;
+    _notifyPending = true;
+    if (_notifyTimer != null) return;
+    _notifyTimer = Timer(const Duration(milliseconds: 16), _flushNotify);
+  }
+
+  void _flushNotify() {
+    _notifyTimer = null;
+    if (_disposed || !_notifyPending) return;
+    _notifyPending = false;
     notifyListeners();
+  }
+
+  /// Flips between the dark (default) and light themes.
+  void toggleThemeMode() {
+    themeMode.value = themeMode.value == ThemeMode.dark
+        ? ThemeMode.light
+        : ThemeMode.dark;
   }
 
   OpenCodeClient? get client => _client;
@@ -73,8 +98,25 @@ class ChatController extends ChangeNotifier {
   // Connection
   // ---------------------------------------------------------------------------
 
-  /// Discovers (or starts) the local service and connects.
+  /// Base URL baked in at build time:
+  /// `--dart-define=OPENCODE_BASE_URL=http://192.168.1.20:4096`.
+  static const String environmentBaseUrl =
+      String.fromEnvironment('OPENCODE_BASE_URL');
+
+  /// Connects to the configured server: the `OPENCODE_BASE_URL` define when
+  /// set, the serving origin on the web, and the discovered local service
+  /// otherwise.
   Future<void> connectLocal() async {
+    if (environmentBaseUrl.isNotEmpty) {
+      await connectTo(Uri.parse(environmentBaseUrl));
+      return;
+    }
+    if (kIsWeb) {
+      // A LAN host serves this app same-origin and proxies the API with auth
+      // injection, so there is nothing to discover.
+      await connectTo(Uri.parse(Uri.base.origin));
+      return;
+    }
     await _connect(discover: true);
   }
 
@@ -101,6 +143,9 @@ class ChatController extends ChangeNotifier {
       }
       final client = OpenCodeClient(baseUrl: url!, headers: headers);
       _client = client;
+      // Retry transient failures on idempotent requests (GET/HEAD) only; a
+      // retried prompt could be admitted twice.
+      client.transport.retry = const RetryPolicy();
       baseUrl = client.transport.baseUrl;
       final info = await client.server.info();
       serverVersion = info.version;
@@ -344,7 +389,13 @@ class ChatController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Sends [text] to the active session, creating one when needed.
-  Future<void> send(String text) async {
+  ///
+  /// [files] are attached to the prompt (paths on desktop, LAN-host paths on
+  /// the web).
+  Future<void> send(
+    String text, {
+    List<PromptInputFileAttachment> files = const [],
+  }) async {
     var session = activeSession;
     if (session == null) {
       session = await newSession();
@@ -354,19 +405,30 @@ class ChatController extends ChangeNotifier {
     if (client == null) return;
     sending = true;
     try {
-      // Optimistic echo so the prompt appears immediately.
+      // Optimistic echo so the prompt appears immediately. Attachment-only
+      // sends echo the file names.
+      final echoText = text.isNotEmpty
+          ? text
+          : files
+              .map((file) => file.name ?? file.uri)
+              .where((name) => name.isNotEmpty)
+              .join(', ');
       final optimistic = ChatMessage(
         id: 'local_${DateTime.now().microsecondsSinceEpoch}',
         role: ChatRole.user,
         time: DateTime.now(),
-        text: text,
+        text: echoText,
       );
       if (activeSession?.id == session.id) {
         messages = [...messages, optimistic];
         _notify();
       }
       final sentSessionID = session.id;
-      await client.session.prompt(sessionID: sentSessionID, text: text);
+      await client.session.prompt(
+        sessionID: sentSessionID,
+        text: text,
+        files: files.isEmpty ? null : files,
+      );
       // The server admits the message; refresh shortly to replace the echo
       // with the recorded user message.
       unawaited(
@@ -766,12 +828,20 @@ class ChatController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    if (_notifyPending) {
+      // Flush a pending UI update before tearing down.
+      _notifyPending = false;
+      notifyListeners();
+    }
     final events = _events;
     _events = null;
     final client = _client;
     _client = null;
     _reconnectTimer?.cancel();
     _sessionRefreshDebounce?.cancel();
+    themeMode.dispose();
     unawaited(events?.cancel());
     client?.close();
     super.dispose();

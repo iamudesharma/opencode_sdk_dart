@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import 'app_theme.dart';
 import 'chat_controller.dart';
 import 'chat_models.dart';
+import 'copy_button.dart';
 import 'markdown_lite.dart';
 
 /// The scrolling transcript for the active session.
@@ -25,6 +28,12 @@ class _ChatTranscriptState extends State<ChatTranscript> {
     super.initState();
     widget.controller.addListener(_onControllerChanged);
     _scroll.addListener(_trackPosition);
+    // Sessions open pinned to the newest messages.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
   }
 
   @override
@@ -52,12 +61,29 @@ class _ChatTranscriptState extends State<ChatTranscript> {
     if (!_wasNearBottom) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients) return;
-      _scroll.animateTo(
-        _scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
+      if (_isStreaming) {
+        // Streaming appends every frame; animating the scroll position would
+        // thrash, so snap straight to the bottom instead.
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      } else {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      }
     });
+  }
+
+  /// Whether the last visible message is still streaming.
+  bool get _isStreaming {
+    final messages = widget.controller.messages;
+    for (var index = messages.length - 1; index >= 0; index--) {
+      final message = messages[index];
+      if (message.isEmpty) continue;
+      return message.streaming;
+    }
+    return false;
   }
 
   void _jumpToBottom() {
@@ -401,16 +427,61 @@ class ToolCard extends StatefulWidget {
 
 class _ToolCardState extends State<ToolCard> {
   var _expanded = false;
+  final _startedAt = DateTime.now();
+  DateTime? _finishedAt;
+  var _wasRunning = false;
+  ChatToolStatus? _lastStatus;
+  Timer? _ticker;
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  bool get _running =>
+      widget.part.status == ChatToolStatus.running ||
+      widget.part.status == ChatToolStatus.streaming;
+
+  /// Watches status transitions (parts are mutated in place) and drives the
+  /// one-second ticker that keeps the elapsed label live.
+  void _syncLifecycle() {
+    final status = widget.part.status;
+    if (status == _lastStatus) return;
+    _lastStatus = status;
+    if (_running) {
+      _wasRunning = true;
+      _finishedAt = null;
+      _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      if (_wasRunning) _finishedAt ??= DateTime.now();
+      _ticker?.cancel();
+      _ticker = null;
+    }
+  }
+
+  /// Elapsed seconds while running, or the run duration once settled.
+  String? _elapsedLabel() {
+    if (_running) {
+      return _formatSeconds(DateTime.now().difference(_startedAt).inSeconds);
+    }
+    final finished = _finishedAt;
+    if (finished == null) return null;
+    return _formatSeconds(finished.difference(_startedAt).inSeconds);
+  }
 
   @override
   Widget build(BuildContext context) {
+    _syncLifecycle();
     final theme = Theme.of(context);
     final part = widget.part;
-    final status = switch (part.status) {
-      ChatToolStatus.streaming => ('Preparing', theme.colorScheme.outline),
-      ChatToolStatus.running => ('Running', theme.colorScheme.tertiary),
-      ChatToolStatus.completed => ('Done', theme.colorScheme.primary),
-      ChatToolStatus.failed => ('Failed', theme.colorScheme.error),
+    final statusColor = switch (part.status) {
+      ChatToolStatus.streaming => theme.colorScheme.outline,
+      ChatToolStatus.running => theme.colorScheme.tertiary,
+      ChatToolStatus.completed => theme.colorScheme.primary,
+      ChatToolStatus.failed => theme.colorScheme.error,
     };
     final hasDetails = part.input.isNotEmpty ||
         part.inputJson != null ||
@@ -434,7 +505,7 @@ class _ToolCardState extends State<ToolCard> {
                 ? () => setState(() => _expanded = !_expanded)
                 : null,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
                   Icon(
@@ -443,50 +514,37 @@ class _ToolCardState extends State<ToolCard> {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                   const SizedBox(width: 9),
-                  Text(
-                    part.name,
-                    style: theme.textTheme.labelLarge,
-                  ),
-                  const SizedBox(width: 10),
-                  if (part.status == ChatToolStatus.running ||
-                      part.status == ChatToolStatus.streaming)
-                    SizedBox(
-                      width: 11,
-                      height: 11,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.6,
-                        color: status.$2,
-                      ),
-                    )
-                  else
-                    Icon(
-                      part.status == ChatToolStatus.completed
-                          ? Icons.check_circle_outline
-                          : Icons.error_outline,
-                      size: 14,
-                      color: status.$2,
+                  Flexible(
+                    child: Text(
+                      part.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge,
                     ),
-                  const SizedBox(width: 6),
-                  Text(
-                    status.$1,
-                    style: theme.textTheme.labelSmall
-                        ?.copyWith(color: status.$2),
                   ),
-                  if (part.output != null && !_expanded && part.output!.isNotEmpty)
-                    Flexible(
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: Text(
-                          part.output!.split('\n').first,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    ),
-                  const Spacer(),
+                  const SizedBox(width: 9),
+                  _ToolStatusChip(
+                    status: part.status,
+                    color: statusColor,
+                    elapsed: _elapsedLabel(),
+                  ),
+                  Expanded(
+                    child: part.output != null &&
+                            !_expanded &&
+                            part.output!.isNotEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Text(
+                              part.output!.split('\n').first,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
                   if (hasDetails)
                     Icon(
                       _expanded ? Icons.expand_less : Icons.expand_more,
@@ -535,6 +593,73 @@ class _ToolCardState extends State<ToolCard> {
   }
 }
 
+class _ToolStatusChip extends StatelessWidget {
+  const _ToolStatusChip({
+    required this.status,
+    required this.color,
+    this.elapsed,
+  });
+
+  final ChatToolStatus status;
+  final Color color;
+  final String? elapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final label = switch (status) {
+      ChatToolStatus.streaming => 'Preparing',
+      ChatToolStatus.running => 'Running',
+      ChatToolStatus.completed => 'Done',
+      ChatToolStatus.failed => 'Failed',
+    };
+    final running = status == ChatToolStatus.running ||
+        status == ChatToolStatus.streaming;
+    final time = elapsed;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (running)
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.4, color: color),
+            )
+          else
+            Icon(
+              status == ChatToolStatus.completed
+                  ? Icons.check_circle_outline
+                  : Icons.error_outline,
+              size: 12,
+              color: color,
+            ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(color: color),
+          ),
+          if (time != null) ...[
+            const SizedBox(width: 5),
+            Text(
+              '\u00b7 $time',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: color.withValues(alpha: 0.75),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _MonoBlock extends StatelessWidget {
   const _MonoBlock({required this.title, required this.text, this.color});
 
@@ -548,14 +673,20 @@ class _MonoBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline,
-            letterSpacing: 0.6,
-          ),
+        Row(
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+                letterSpacing: 0.6,
+              ),
+            ),
+            const Spacer(),
+            CopyButton(text: text),
+          ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         Container(
           width: double.infinity,
           constraints: const BoxConstraints(maxHeight: 260),
@@ -567,8 +698,7 @@ class _MonoBlock extends StatelessWidget {
           child: SingleChildScrollView(
             child: SelectableText(
               text,
-              style: TextStyle(
-                fontFamily: 'AppMono',
+              style: monoStyle(
                 fontSize: 12,
                 height: 1.45,
                 color: color ?? const Color(0xFFD8DBE6),
@@ -643,4 +773,11 @@ String _tokens(double value) {
   if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(1)}M';
   if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}k';
   return value.round().toString();
+}
+
+String _formatSeconds(int seconds) {
+  if (seconds < 60) return '${seconds}s';
+  final minutes = seconds ~/ 60;
+  final rest = seconds % 60;
+  return '${minutes}m ${rest.toString().padLeft(2, '0')}s';
 }

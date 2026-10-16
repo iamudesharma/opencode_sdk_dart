@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 import 'package:opencode_chat/src/chat_controller.dart';
@@ -243,6 +244,32 @@ void main() {
     }));
     expect(controller.usage['ses_1']?.cost, 0.5);
     expect(controller.usage['ses_1']?.tokens.input, 100);
+  });
+
+  test('notifications are coalesced into at most one per frame', () async {
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    for (var index = 0; index < 3; index++) {
+      controller.handleEvent(event('session.text.delta', {
+        'sessionID': 'ses_1',
+        'assistantMessageID': 'msg_1',
+        'ordinal': 0,
+        'delta': 'chunk$index',
+      }));
+    }
+    expect(controller.messages.single.parts.whereType<ChatTextPart>().single.text,
+        'chunk0chunk1chunk2');
+    expect(notifications, 0, reason: 'notification is deferred to the frame');
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(notifications, 1);
+  });
+
+  test('theme mode toggles between dark and light', () {
+    expect(controller.themeMode.value, ThemeMode.dark);
+    controller.toggleThemeMode();
+    expect(controller.themeMode.value, ThemeMode.light);
+    controller.toggleThemeMode();
+    expect(controller.themeMode.value, ThemeMode.dark);
   });
 }
 

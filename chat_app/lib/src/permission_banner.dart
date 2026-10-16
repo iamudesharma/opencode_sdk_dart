@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
+import 'app_theme.dart';
 import 'chat_controller.dart';
 
 /// Shows pending permission requests for the active session.
@@ -65,10 +66,7 @@ class PermissionBanner extends StatelessWidget {
                                     ),
                                     child: Text(
                                       resource,
-                                      style: const TextStyle(
-                                        fontFamily: 'AppMono',
-                                        fontSize: 11.5,
-                                      ),
+                                      style: monoStyle(fontSize: 11.5),
                                     ),
                                   ),
                               ],

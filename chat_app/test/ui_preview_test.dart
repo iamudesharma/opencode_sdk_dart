@@ -11,6 +11,10 @@ import 'package:opencode_chat/src/chat_controller.dart';
 import 'package:opencode_chat/src/chat_models.dart';
 import 'package:opencode_chat/src/composer.dart';
 
+/// The family previews load real macOS fonts into (widget tests otherwise
+/// draw text with the built-in box font).
+const String previewFontFamily = 'FlutterTest';
+
 /// Loads real macOS fonts so preview screenshots are readable.
 Future<void> loadSystemFonts() async {
   Future<void> load(String family, List<String> paths) async {
@@ -26,11 +30,17 @@ Future<void> loadSystemFonts() async {
     if (loaded) await loader.load();
   }
 
-  await load('AppFont', [
+  // The default family in widget tests is the built-in box font; loading a
+  // real face into the same family makes previews render like the app.
+  await load(previewFontFamily, [
     '/System/Library/Fonts/Supplemental/Arial.ttf',
     '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Italic.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf',
   ]);
-  await load('AppMono', [
+  // The app's monospace stack starts at Menlo.
+  await load('Menlo', [
+    '/System/Library/Fonts/Menlo.ttc',
     '/System/Library/Fonts/Supplemental/Courier New.ttf',
     '/System/Library/Fonts/Supplemental/Courier New Bold.ttf',
   ]);
@@ -69,8 +79,12 @@ Future<void> capture(WidgetTester tester, String name) async {
   });
 }
 
-Future<void> pumpApp(WidgetTester tester, ChatController controller) async {
-  tester.view.physicalSize = const Size(1280, 840);
+Future<void> pumpApp(
+  WidgetTester tester,
+  ChatController controller, {
+  Size size = const Size(1280, 840),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(() {
     tester.view.resetPhysicalSize();
@@ -79,7 +93,10 @@ Future<void> pumpApp(WidgetTester tester, ChatController controller) async {
   await tester.pumpWidget(
     RepaintBoundary(
       key: previewKey,
-      child: OpenCodeChatApp(controller: controller),
+      child: OpenCodeChatApp(
+        controller: controller,
+        fontFamily: previewFontFamily,
+      ),
     ),
   );
   await tester.pump(const Duration(milliseconds: 60));
@@ -107,6 +124,20 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('light chat screen preview', (tester) async {
+    final controller = _seededController()..themeMode.value = ThemeMode.light;
+    await pumpApp(tester, controller);
+    await capture(tester, 'chat_screen_light');
+    controller.dispose();
+  });
+
+  testWidgets('narrow chat screen preview', (tester) async {
+    final controller = _seededController();
+    await pumpApp(tester, controller, size: const Size(600, 840));
+    await capture(tester, 'chat_screen_narrow');
+    controller.dispose();
+  });
+
   testWidgets('permission banner preview', (tester) async {
     final controller = _seededController();
     controller.pendingPermissions = [
@@ -122,6 +153,17 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('model picker preview', (tester) async {
+    final controller = _seededController();
+    await pumpApp(tester, controller);
+    await tester.tap(find.byKey(const ValueKey('model-picker-button')));
+    // Not pumpAndSettle: the seeded running tool card ticks every second.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await capture(tester, 'model_picker');
+    controller.dispose();
+  });
+
   testWidgets('composer sends on Enter and inserts newline on Shift+Enter',
       (tester) async {
     final submitted = <String>[];
@@ -131,7 +173,7 @@ void main() {
           body: Composer(
             enabled: true,
             busy: false,
-            onSubmit: submitted.add,
+            onSubmit: (text, files) => submitted.add(text),
             onInterrupt: () {},
           ),
         ),
@@ -213,6 +255,60 @@ ChatController _seededController() {
         'status': 'active',
         'enabled': true,
         'limit': {'context': 1048576, 'output': 65536},
+      }),
+      ModelInfo.fromJson({
+        'id': 'gpt-5',
+        'modelID': 'gpt-5',
+        'providerID': 'openai',
+        'family': 'gpt',
+        'name': 'GPT-5',
+        'package': '@opencode/ai/providers/openai',
+        'settings': <String, Object?>{},
+        'headers': <String, Object?>{},
+        'capabilities': {
+          'tools': true,
+          'input': ['text', 'image'],
+          'output': ['text'],
+        },
+        'variants': <Object?>[],
+        'time': {'released': 1791849600000.0},
+        'cost': [
+          {
+            'input': 1.25,
+            'output': 10.0,
+            'cache': {'read': 0.125, 'write': 0.0},
+          },
+        ],
+        'status': 'active',
+        'enabled': true,
+        'limit': {'context': 400000, 'output': 128000},
+      }),
+      ModelInfo.fromJson({
+        'id': 'claude-4.5-sonnet',
+        'modelID': 'claude-4.5-sonnet',
+        'providerID': 'anthropic',
+        'family': 'claude',
+        'name': 'Claude 4.5 Sonnet',
+        'package': '@opencode/ai/providers/anthropic',
+        'settings': <String, Object?>{},
+        'headers': <String, Object?>{},
+        'capabilities': {
+          'tools': true,
+          'input': ['text', 'image'],
+          'output': ['text'],
+        },
+        'variants': <Object?>[],
+        'time': {'released': 1791849600000.0},
+        'cost': [
+          {
+            'input': 3.0,
+            'output': 15.0,
+            'cache': {'read': 0.3, 'write': 0.0},
+          },
+        ],
+        'status': 'active',
+        'enabled': true,
+        'limit': {'context': 200000, 'output': 64000},
       }),
     ];
 
@@ -321,6 +417,9 @@ ChatController _seededController() {
                 '  apply(batch);\n'
                 '}\n'
                 '```\n\n'
+                '### Notes\n\n'
+                '- `watch` reuses the existing cursor.\n'
+                '- Batches are applied in order.\n\n'
                 'The `watch` helper reuses the existing cursor.',
             done: true,
           ),
