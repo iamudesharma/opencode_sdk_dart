@@ -21,6 +21,7 @@ import 'package:http/http.dart' as http;
 import 'errors.dart';
 import 'json_utils.dart';
 import 'request_options.dart';
+import 'retry.dart';
 import 'sse.dart';
 
 /// Decodes structured API errors. The generated client installs an
@@ -46,6 +47,7 @@ final class OpenCodeTransport {
     http.Client? httpClient,
     http.Client Function()? clientFactory,
     this.sseByteLimit = 16 * 1024 * 1024,
+    this.retry,
   })  : _baseUrl = _normalizeBaseUrl(baseUrl),
         _defaultHeaders = Map<String, String>.unmodifiable(
             headers ?? const <String, String>{}),
@@ -56,6 +58,12 @@ final class OpenCodeTransport {
   final Map<String, String> _defaultHeaders;
   final http.Client Function() _clientFactory;
   final int sseByteLimit;
+
+  /// The retry policy applied to requests that do not carry their own.
+  ///
+  /// Retries are opt-in; see [RetryPolicy]. Assign after construction to
+  /// change it, or pass `RequestOptions(retry: ...)` per request.
+  RetryPolicy? retry;
 
   http.Client? _client;
 
@@ -330,39 +338,92 @@ final class OpenCodeTransport {
     bool binaryBody = false,
     RequestOptions? options,
   }) async {
-    final request = http.Request(method, resolve(path, query));
-    request.headers.addAll(_defaultHeaders);
-    if (headers != null) request.headers.addAll(headers);
-    final optionHeaders = options?.headers;
-    if (optionHeaders != null) request.headers.addAll(optionHeaders);
-    if (body != null) {
-      if (binaryBody) {
-        request.bodyBytes = (body as List<int>);
-        request.headers.putIfAbsent(
-          'content-type',
-          () => 'application/octet-stream',
-        );
-      } else {
-        request.headers.putIfAbsent(
-          'content-type',
-          () => 'application/json; charset=utf-8',
-        );
-        request.bodyBytes = utf8.encode(jsonEncode(body));
+    final policy = options?.retry ?? retry;
+    final attempts = (policy != null && policy.retriesMethod(method))
+        ? policy.maxAttempts
+        : 1;
+
+    // The request is rebuilt per attempt: `http.Request.finalize` may only
+    // run once, so a retry needs a fresh instance.
+    http.Request build() {
+      final request = http.Request(method, resolve(path, query));
+      request.headers.addAll(_defaultHeaders);
+      if (headers != null) request.headers.addAll(headers);
+      final optionHeaders = options?.headers;
+      if (optionHeaders != null) request.headers.addAll(optionHeaders);
+      if (body != null) {
+        if (binaryBody) {
+          request.bodyBytes = (body as List<int>);
+          request.headers.putIfAbsent(
+            'content-type',
+            () => 'application/octet-stream',
+          );
+        } else {
+          request.headers.putIfAbsent(
+            'content-type',
+            () => 'application/json; charset=utf-8',
+          );
+          request.bodyBytes = utf8.encode(jsonEncode(body));
+        }
+      }
+      return request;
+    }
+
+    for (var attempt = 1; ; attempt++) {
+      try {
+        final response = await client.send(build());
+        final retryable = attempt < attempts &&
+            policy != null &&
+            policy.retryableStatusCodes.contains(response.statusCode);
+        if (!retryable) return response;
+        final retryAfter = response.headers['retry-after'];
+        try {
+          await response.stream.drain<void>();
+        } on Object {
+          // The failed response is discarded anyway.
+        }
+        await _waitBeforeRetry(policy, attempt, retryAfter, options);
+      } on Object catch (error) {
+        if (options?.cancelToken?.isCancelled ?? false) {
+          throw OpenCodeCancelledException();
+        }
+        if (error is OpenCodeApiException ||
+            error is OpenCodeMalformedResponseException ||
+            error is OpenCodeStreamException ||
+            error is OpenCodeCancelledException) {
+          rethrow;
+        }
+        if (attempt >= attempts) {
+          throw OpenCodeTransportException(error);
+        }
+        // A connection-level failure on a retryable request: back off and
+        // try again.
+        await _waitBeforeRetry(policy!, attempt, null, options);
       }
     }
-    try {
-      return await client.send(request);
-    } on Object catch (error) {
-      if (options?.cancelToken?.isCancelled ?? false) {
-        throw OpenCodeCancelledException();
-      }
-      if (error is OpenCodeApiException ||
-          error is OpenCodeMalformedResponseException ||
-          error is OpenCodeStreamException) {
-        rethrow;
-      }
-      throw OpenCodeTransportException(error);
+  }
+
+  /// Waits out the backoff for [attempt], aborting when the request is
+  /// cancelled while waiting.
+  Future<void> _waitBeforeRetry(
+    RetryPolicy policy,
+    int attempt,
+    String? retryAfter,
+    RequestOptions? options,
+  ) async {
+    final token = options?.cancelToken;
+    if (token?.isCancelled ?? false) throw OpenCodeCancelledException();
+    final delay = policy.delayFor(attempt, retryAfter: retryAfter);
+    if (delay <= Duration.zero) return;
+    if (token == null) {
+      await Future<void>.delayed(delay);
+      return;
     }
+    await Future.any([
+      Future<void>.delayed(delay),
+      token.whenCancelled,
+    ]);
+    if (token.isCancelled) throw OpenCodeCancelledException();
   }
 
   Future<OpenCodeApiException> _errorFrom(

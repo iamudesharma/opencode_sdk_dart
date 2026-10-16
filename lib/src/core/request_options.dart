@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 
 import 'json_utils.dart';
+import 'retry.dart';
 
 /// Identifies the working directory ("location") an operation targets.
 ///
@@ -102,7 +103,12 @@ final class CancellationToken {
 
 /// Options accepted by every API call.
 final class RequestOptions {
-  const RequestOptions({this.location, this.headers, this.cancelToken});
+  const RequestOptions({
+    this.location,
+    this.headers,
+    this.cancelToken,
+    this.retry,
+  });
 
   /// The working directory this request targets, when a specific one is
   /// needed. Omit to use the server default location.
@@ -115,6 +121,11 @@ final class RequestOptions {
   /// Aborts the request when cancelled.
   final CancellationToken? cancelToken;
 
+  /// Overrides the transport's [RetryPolicy] for this call.
+  final RetryPolicy? retry;
+
   @override
-  String toString() => 'RequestOptions(location: $location, headers: $headers)';
+  String toString() =>
+      'RequestOptions(location: $location, headers: $headers, '
+      'retry: $retry)';
 }

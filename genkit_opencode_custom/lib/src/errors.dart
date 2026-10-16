@@ -73,6 +73,14 @@ GenkitException openCodeError(Object error, {StackTrace? stackTrace}) {
       stackTrace: stackTrace,
     );
   }
+  if (error is sdk.OpenCodeExecutionException) {
+    return GenkitException(
+      error.message,
+      status: StatusCode.internal,
+      cause: error,
+      stackTrace: stackTrace,
+    );
+  }
   if (error is sdk.OpenCodeTransportException ||
       error is sdk.OpenCodeMalformedResponseException ||
       error is sdk.OpenCodeDecodeException ||

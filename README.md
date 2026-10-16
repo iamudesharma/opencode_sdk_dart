@@ -124,6 +124,24 @@ final agents = await client.agent.list(
 token.cancel(); // aborts the request and closes its stream
 ```
 
+Transient failures can be retried with an opt-in `RetryPolicy` — either on the
+transport (every request) or per request:
+
+```dart
+client.transport.retry = const RetryPolicy(); // GET/HEAD only, 3 attempts
+await client.session.get(
+  sessionID: session.id,
+  options: const RequestOptions(
+    retry: RetryPolicy(maxAttempts: 5, retryNonIdempotent: false),
+  ),
+);
+```
+
+Writes are never retried unless `retryNonIdempotent` is set: a `prompt` that
+timed out may already have been admitted, and a blind retry would run it
+twice. `Retry-After` hints (whole seconds) are honored, and retries abort
+promptly when the request's cancellation token fires.
+
 ## Events
 
 `client.event.subscribe()` and `client.events.subscribe()` are aliases backed
@@ -146,6 +164,57 @@ final subscription = client.event.subscribe().listen((event) {
       print(event.data);
   }
 });
+```
+
+## Sessions and turns
+
+`client.streamPrompt(...)` runs one session turn end to end: it sends the
+prompt, streams text and reasoning deltas, and resolves with the server's own
+record of the message.
+
+```dart
+final turn = client.streamPrompt(
+  sessionID: session.id,
+  text: 'Explain what this repository does.',
+);
+
+await for (final event in turn) {
+  switch (event) {
+    case SessionTurnTextDelta(:final delta):
+      stdout.write(delta);
+    case SessionTurnReasoningDelta(:final delta):
+      stderr.write(delta);
+    case SessionTurnStepUsage(:final usage):
+      print('${usage.totalTokens} tokens so far');
+    case SessionTurnCompleted():
+      break;
+  }
+}
+
+final result = await turn.result;
+print(result.text);       // reconciled full answer
+print(result.reasoning);  // full reasoning, when the model produced any
+print(result.usage.totalTokens);
+```
+
+The event stream is treated as best-effort: it is live-only and can end
+mid-turn (reconnects, slow-consumer overflow, server restarts), so each turn
+races the events against `session.wait` plus an assistant-message check, and
+reconciles the final text with the server's record. A dropped event stream
+delays the answer but never loses it. A failed execution surfaces as
+`OpenCodeExecutionException` on `turn.result`.
+
+Listing endpoints that page with cursors have `listAll` helpers that follow
+`cursor.next` until it runs out:
+
+```dart
+await for (final session in client.session.listAll(search: 'coach')) {
+  print(session.title);
+}
+await for (final message in client.session.message
+    .listAll(sessionID: session.id, type: SessionMessageListType.assistant)) {
+  print(message.id);
+}
 ```
 
 ## Plugin RPC
@@ -286,6 +355,7 @@ lib/
   src/core/                       # transport, SSE, events, errors, options
   src/rpc/                        # plugin RPC subclient
   src/pty/                        # WebSocket helpers + resource extensions
+  src/session/                    # turn streaming + pagination helpers
   src/service/                    # local background service management
   src/generated/                  # models + 28 resources + client (generated)
 chat_app/                         # minimal macOS chat client

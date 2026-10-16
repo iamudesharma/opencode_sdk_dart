@@ -443,142 +443,49 @@ final class OpenCodePlugin extends GenkitPlugin {
       sessionID = created.id;
     }
 
-    StreamSubscription<sdk.OpenCodeEvent>? subscription;
-    final done = Completer<void>();
-    final text = StringBuffer();
-    final reasoning = StringBuffer();
-    GenerationUsage? usage;
-
     try {
-
-      subscription = client.multiplexer
-          .subscribe(
-            filter: (event) => event.data['sessionID'] == sessionID.value,
-          )
-          .listen(
-            (event) {
-              if (done.isCompleted) return;
-
-              void emit(String delta, {required bool isReasoning}) {
-                if (delta.isEmpty) return;
-                ctx.sendChunk(
-                  ModelResponseChunk(
-                    role: Role.model,
-                    index: 0,
-                    content: [
-                      isReasoning
-                          ? ReasoningPart(reasoning: delta)
-                          : TextPart(text: delta),
-                    ],
-                  ),
-                );
-              }
-
-              /// Appends a streamed delta; returns the text to emit.
-              String append(String value, {required bool isReasoning}) {
-                final buffer = isReasoning ? reasoning : text;
-                buffer.write(value);
-                return value;
-              }
-
-              /// Reconciles an `*.ended` event that carries the full text:
-              /// emits only the suffix the deltas did not cover.
-              void reconcile(Object? full, {required bool isReasoning}) {
-                if (full is! String || full.isEmpty) return;
-                final buffer = isReasoning ? reasoning : text;
-                final current = buffer.toString();
-                if (full == current) return;
-                if (full.startsWith(current)) {
-                  emit(
-                    append(
-                      full.substring(current.length),
-                      isReasoning: isReasoning,
-                    ),
-                    isReasoning: isReasoning,
-                  );
-                  return;
-                }
-                // The event disagrees with what was streamed (e.g. a late
-                // subscription saw a truncated history); trust the event for
-                // the final response without emitting duplicate text.
-                buffer
-                  ..clear()
-                  ..write(full);
-                _logger.fine(
-                  'Replaced streamed ${isReasoning ? 'reasoning' : 'text'} '
-                  'with the value from ${isReasoning ? 'session.reasoning' : 'session.text'}.ended.',
-                );
-              }
-
-              switch (event.type) {
-                case 'session.text.delta':
-                  final delta = event.data['delta'];
-                  if (delta is String && delta.isNotEmpty) {
-                    emit(append(delta, isReasoning: false), isReasoning: false);
-                  }
-                case 'session.text.ended':
-                  reconcile(event.data['text'], isReasoning: false);
-                case 'session.reasoning.delta':
-                  final delta = event.data['delta'];
-                  if (delta is String && delta.isNotEmpty) {
-                    emit(append(delta, isReasoning: true), isReasoning: true);
-                  }
-                case 'session.reasoning.ended':
-                  reconcile(event.data['text'], isReasoning: true);
-                case 'session.step.ended':
-                  usage = _mergeUsage(usage, event.data);
-                case 'session.execution.succeeded':
-                  done.complete();
-                case 'session.execution.failed':
-                  done.completeError(_executionError(event.data));
-                case 'session.execution.interrupted':
-                  done.completeError(
-                    GenkitException(
-                      'The OpenCode session was interrupted.',
-                      status: StatusCode.cancelled,
-                    ),
-                  );
-              }
-            },
-            onError: (Object error, StackTrace stackTrace) {
-              if (!done.isCompleted) {
-                done.completeError(error, stackTrace);
-              }
-            },
-            onDone: () {
-              // The shared event stream is live-only: it can end mid-turn
-              // (reconnect, slow-consumer overflow, server restart). The
-              // polling fallback below finishes the turn from session state.
-              _logger.fine('The event stream for "$name" ended.');
-            },
-          );
-
-      await client.session.prompt(
+      // The SDK runs the turn: it streams deltas from the shared event
+      // connection, falls back to `session.wait` polling when the live-only
+      // stream drops, and reconciles the final text with the server's own
+      // record of the message.
+      final turn = client.streamPrompt(
         sessionID: sessionID,
         text: prompt,
         files: attachments.isEmpty ? null : attachments,
         metadata: options.metadata,
         options: requestOptions,
       );
-
-      // Complete on whichever comes first: the execution event or the
-      // session reporting itself idle (with a finished assistant message).
-      // The event path is the fast one; the polling path is what keeps the
-      // bridge correct when events are missed.
-      await Future.any([
-        done.future,
-        _awaitExecutionEnd(client, sessionID, cancel, done),
-      ]);
+      await for (final event in turn) {
+        switch (event) {
+          case sdk.SessionTurnTextDelta(:final delta):
+            ctx.sendChunk(
+              ModelResponseChunk(
+                role: Role.model,
+                index: 0,
+                content: [TextPart(text: delta)],
+              ),
+            );
+          case sdk.SessionTurnReasoningDelta(:final delta):
+            ctx.sendChunk(
+              ModelResponseChunk(
+                role: Role.model,
+                index: 0,
+                content: [ReasoningPart(reasoning: delta)],
+              ),
+            );
+          case sdk.SessionTurnStepUsage():
+          case sdk.SessionTurnCompleted():
+            break;
+        }
+      }
+      final turnResult = await turn.result;
       ctx.cancel?.throwIfCancelled();
 
-      // Reconcile with the server's own record of the turn so a dropped
-      // event stream never loses generated text.
-      await _reconcileFromServer(client, sessionID, text, reasoning, cancel);
-
+      final turnUsage = turnResult.usage;
       final parts = <Part>[
-        if (reasoning.isNotEmpty)
-          ReasoningPart(reasoning: reasoning.toString()),
-        if (text.isNotEmpty) TextPart(text: text.toString()),
+        if (turnResult.reasoning.isNotEmpty)
+          ReasoningPart(reasoning: turnResult.reasoning),
+        if (turnResult.text.isNotEmpty) TextPart(text: turnResult.text),
       ];
       return ModelResponse(
         message: parts.isEmpty
@@ -586,14 +493,25 @@ final class OpenCodePlugin extends GenkitPlugin {
             : Message(role: Role.model, content: parts),
         finishReason: FinishReason.stop,
         latencyMs: _elapsedMs(started),
-        usage: usage,
+        usage: turnUsage.totalTokens > 0 || turnUsage.cost > 0
+            ? GenerationUsage(
+                inputTokens: turnUsage.inputTokens +
+                    turnUsage.cacheReadTokens +
+                    turnUsage.cacheWriteTokens,
+                outputTokens:
+                    turnUsage.outputTokens + turnUsage.reasoningTokens,
+                totalTokens: turnUsage.totalTokens,
+                cachedContentTokens: turnUsage.cacheReadTokens,
+                thoughtsTokens: turnUsage.reasoningTokens,
+              )
+            : null,
         custom: {'model': modelName, 'sessionID': sessionID.value},
       );
+    } on GenkitException {
+      rethrow;
     } catch (error, stackTrace) {
-      if (error is GenkitException) rethrow;
       throw openCodeError(error, stackTrace: stackTrace);
     } finally {
-      await subscription?.cancel();
       final created = createdSession;
       if (created != null) {
         try {
@@ -606,143 +524,6 @@ final class OpenCodePlugin extends GenkitPlugin {
         }
       }
     }
-  }
-
-  /// Waits until the server reports the session idle *and* the assistant
-  /// message of the turn is completed, then resolves.
-  ///
-  /// This is the safety net for the event stream: the bridge must still
-  /// finish a turn when the shared SSE connection ends or misses events.
-  /// Errors are swallowed while [done] is still pending because the event
-  /// path (or a later poll) may still succeed; a timeout fails the turn.
-  static Future<void> _awaitExecutionEnd(
-    sdk.OpenCodeClient client,
-    sdk.SessionID sessionID,
-    sdk.CancellationToken? cancel,
-    Completer<void> done,
-  ) async {
-    const maxPolls = 180;
-    try {
-      for (var attempt = 0; attempt < maxPolls && !done.isCompleted; attempt++) {
-        await client.session.wait(
-          sessionID: sessionID,
-          options: sdk.RequestOptions(cancelToken: cancel),
-        );
-        if (done.isCompleted) return;
-        final response = await client.session.message.list(
-          sessionID: sessionID,
-          limit: '10',
-          order: sdk.SessionMessageListOrder.desc,
-          type: sdk.SessionMessageListType.assistant,
-          options: sdk.RequestOptions(cancelToken: cancel),
-        );
-        if (done.isCompleted) return;
-        final assistant = response.data
-            .whereType<sdk.SessionMessageAssistant>()
-            .firstOrNull;
-        if (assistant != null && assistant.time.completed != null) {
-          done.complete();
-          return;
-        }
-      }
-      if (!done.isCompleted) {
-        done.completeError(
-          GenkitException(
-            'Timed out waiting for the OpenCode session to finish.',
-            status: StatusCode.deadlineExceeded,
-          ),
-        );
-      }
-    } catch (error, stackTrace) {
-      if (!done.isCompleted) {
-        done.completeError(error, stackTrace);
-      }
-    }
-  }
-
-  /// Fills gaps in the streamed buffers from the server's record of the last
-  /// assistant message, so a dropped event stream does not lose the answer.
-  static Future<void> _reconcileFromServer(
-    sdk.OpenCodeClient client,
-    sdk.SessionID sessionID,
-    StringBuffer text,
-    StringBuffer reasoning,
-    sdk.CancellationToken? cancel,
-  ) async {
-    try {
-      final response = await client.session.message.list(
-        sessionID: sessionID,
-        limit: '10',
-        order: sdk.SessionMessageListOrder.desc,
-        type: sdk.SessionMessageListType.assistant,
-        options: sdk.RequestOptions(cancelToken: cancel),
-      );
-      final assistant = response.data
-          .whereType<sdk.SessionMessageAssistant>()
-          .firstOrNull;
-      if (assistant == null) return;
-      for (final part in assistant.content) {
-        switch (part) {
-          case sdk.SessionMessageAssistantText(text: final serverText):
-            if (serverText.length > text.length &&
-                serverText.startsWith(text.toString())) {
-              text.write(serverText.substring(text.length));
-            }
-          case sdk.SessionMessageAssistantReasoning(
-            text: final serverReasoning,
-          ):
-            if (serverReasoning.length > reasoning.length &&
-                serverReasoning.startsWith(reasoning.toString())) {
-              reasoning.write(serverReasoning.substring(reasoning.length));
-            }
-          default:
-            break;
-        }
-      }
-    } catch (error) {
-      _logger.fine('Reconciliation with the session state failed: $error');
-    }
-  }
-
-  static GenkitException _executionError(Map<String, Object?> data) {    final error = data['error'];
-    final message = error is Map
-        ? (error['message']?.toString() ?? error['_tag']?.toString())
-        : error?.toString();
-    return GenkitException(
-      'The OpenCode session failed: ${message ?? 'unknown error'}',
-      status: StatusCode.internal,
-      details: error is Map ? jsonEncode(error) : null,
-    );
-  }
-
-  /// Folds `session.step.ended` token counts into Genkit usage totals.
-  static GenerationUsage _mergeUsage(
-    GenerationUsage? previous,
-    Map<String, Object?> data,
-  ) {
-    final tokens = data['tokens'];
-    if (tokens is! Map) return previous ?? GenerationUsage();
-    int read(Object? value) => value is num ? value.toInt() : 0;
-    final input = read(tokens['input']);
-    final output = read(tokens['output']);
-    final reasoning = read(tokens['reasoning']);
-    final cache = tokens['cache'];
-    final cacheRead = cache is Map ? read(cache['read']) : 0;
-    final cacheWrite = cache is Map ? read(cache['write']) : 0;
-    return GenerationUsage(
-      inputTokens:
-          (previous?.inputTokens ?? 0) + input + cacheRead + cacheWrite,
-      outputTokens: (previous?.outputTokens ?? 0) + output + reasoning,
-      totalTokens:
-          (previous?.totalTokens ?? 0) +
-          input +
-          cacheRead +
-          cacheWrite +
-          output +
-          reasoning,
-      cachedContentTokens: (previous?.cachedContentTokens ?? 0) + cacheRead,
-      thoughtsTokens: (previous?.thoughtsTokens ?? 0) + reasoning,
-    );
   }
 
   /// Renders Genkit messages as the plain prompt the server accepts.

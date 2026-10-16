@@ -11,7 +11,8 @@
   - real model catalog with capabilities for the Dev UI
   - streaming via ephemeral sessions plus the shared event stream, with
     `session.wait` polling and server-side reconciliation so a dropped event
-    stream delays a turn instead of hanging it
+    stream delays a turn instead of hanging it (implemented with the SDK's
+    `client.streamPrompt` turn helper)
   - structured outputs: the output schema is appended to the prompt as JSON
     instructions and Genkit parses the response
   - media parts forwarded as session prompt attachments
