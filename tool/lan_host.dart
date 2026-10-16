@@ -159,18 +159,31 @@ Future<void> main(List<String> args) async {
   }
 
   // Shut the host down cleanly; the OpenCode service keeps running.
+  var shuttingDown = false;
+  final signalSubscriptions = <StreamSubscription<ProcessSignal>>[];
   void shutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
     print('\nShutting down the LAN host (the OpenCode service keeps running).');
     unawaited(server.close(force: true));
   }
 
-  ProcessSignal.sigint.watch().listen((_) => shutdown());
-  ProcessSignal.sigterm.watch().listen((_) => shutdown());
+  signalSubscriptions
+    ..add(ProcessSignal.sigint.watch().listen((_) => shutdown()))
+    ..add(ProcessSignal.sigterm.watch().listen((_) => shutdown()));
 
   await for (final request in server) {
     unawaited(host.handle(request));
   }
+  for (final subscription in signalSubscriptions) {
+    await subscription.cancel();
+  }
+  // Signal watchers and the keep-alive upstream client would otherwise keep
+  // the event loop alive after the server closed.
+  host.upstream.close(force: true);
   print('LAN host stopped.');
+  await stdout.flush();
+  exit(0);
 }
 
 /// Parses the command line, printing usage and returning null on errors.
