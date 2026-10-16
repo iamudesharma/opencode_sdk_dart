@@ -352,6 +352,13 @@ stores the file under `<system temp>/openfit-uploads/` and answers
 `{"path": "<absolute path>"}`, the server-local path the OpenCode API expects
 for attachments.
 
+Every app ships a PWA manifest, branded icons (`dart run tool/make_icons.dart`
+regenerates them for web and macOS), and iOS home-screen meta tags, so **Add to
+Home Screen** from the phone browser opens them full-screen like an app. The
+full install prompt and offline caching need a secure context (HTTPS or
+localhost); over the plain-HTTP LAN URL you get the home-screen shortcut and
+everything works live while the host is running.
+
 ## Regenerating the SDK
 
 The entire `lib/src/generated` tree is produced from `openapi/openapi.json`:
@@ -392,19 +399,20 @@ lib/
   src/session/                    # turn streaming + pagination helpers
   src/service/                    # local background service management
   src/generated/                  # models + 28 resources + client (generated)
-chat_app/                         # minimal macOS chat client
-opencode_cockpit/                 # full macOS workbench (projects, git, PTY)
+chat_app/                         # chat client: macOS + phone web
+opencode_cockpit/                 # workbench: macOS + phone web (projects, git, PTY)
 genkit_opencode_custom/           # Genkit Dart plugin: OpenCode server bridge
                                   #   (openCode()) through this SDK, plus an
                                   #   OpenAI-compatible handle (openAI())
-gym_coach/                        # macOS app: typed workout + food plans (with
-                                  #   a live-text mode) from an OpenCode model
+gym_coach/                        # OpenFit: coach for macOS + phone web (typed
+                                  #   plans, ask-coach chat, interactive workout)
 example/
   main.dart                       # SDK tour: streaming turn, step usage, pagination
 tool/
   generate.dart                   # OpenAPI 3.1 -> Dart 3 code generator
   lan_host.dart                   # LAN host: serves the web builds + proxies the API
   live_smoke.dart                 # live read-only smoke test
+  make_icons.dart                 # branded app icons for web + macOS
 openapi/openapi.json              # pinned contract snapshot
 ```
 
