@@ -46,11 +46,18 @@ Future<void> main(List<String> args) async {
 
   if (typed) {
     final stopwatch = Stopwatch()..start();
+    var lastReported = 0;
     final result = await service.generateTypedPlan(
       modelId: model.id,
       request: request,
+      onProgress: (received) {
+        if (received - lastReported < 500) return;
+        lastReported = received;
+        stdout.writeln('  streaming: $received chars');
+      },
     );
     stopwatch.stop();
+    stdout.writeln('session: ${service.coachSessionID}');
     final plan = result.plan;
     stdout.writeln('--- typed plan ---');
     stdout.writeln('overview: ${plan.overview}');

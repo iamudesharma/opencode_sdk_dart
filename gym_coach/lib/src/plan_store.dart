@@ -1,13 +1,15 @@
 /// Local persistence for generated plans.
 ///
-/// Each plan is one JSON file under the app support directory, so history
-/// survives restarts without a database. The store never throws for a missing
-/// directory, an unreadable file, or a failed write of one entry; history is a
-/// convenience, not a source of truth.
+/// The public API is identical on every platform; the storage behind it is
+/// chosen at compile time: one JSON file per plan under the app support
+/// directory on desktop, one JSON array in `window.localStorage` on the web.
+/// The store never throws for a missing directory, an unreadable entry, or a
+/// failed write; history is a convenience, not a source of truth.
 library;
 
-import 'dart:convert';
-import 'dart:io';
+import 'plan_store_stub.dart'
+    if (dart.library.io) 'plan_store_io.dart'
+    if (dart.library.js_interop) 'plan_store_web.dart';
 
 /// One saved plan.
 final class SavedPlan {
@@ -68,58 +70,43 @@ final class SavedPlan {
   };
 }
 
-/// Stores generated plans as JSON files.
-final class PlanStore {
-  /// Creates a store rooted at [directory], or at the app support directory.
-  PlanStore({String? directory}) : _directory = directory ?? defaultDirectory();
-
-  final String _directory;
-
-  /// The default storage directory: `~/Library/Application Support/gym_coach/plans`.
-  static String defaultDirectory() {
-    final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
-    return '$home/Library/Application Support/gym_coach/plans';
-  }
-
-  /// The storage directory path.
-  String get directory => _directory;
+/// The platform-specific storage behind [PlanStore].
+abstract interface class PlanStoreBackend {
+  /// The storage location shown to the user.
+  String get directory;
 
   /// Lists stored plans, newest first.
-  Future<List<SavedPlan>> list() async {
-    final dir = Directory(_directory);
-    if (!dir.existsSync()) return const [];
-    final plans = <SavedPlan>[];
-    for (final entity in dir.listSync()) {
-      if (entity is! File || !entity.path.endsWith('.json')) continue;
-      try {
-        final decoded = jsonDecode(entity.readAsStringSync());
-        if (decoded is Map<String, dynamic>) {
-          plans.add(SavedPlan.fromJson(decoded));
-        }
-      } on Object {
-        // Skip unreadable entries; history is best-effort.
-      }
-    }
-    plans.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return plans;
-  }
+  Future<List<SavedPlan>> list();
 
-  /// Writes [plan] to the store, replacing any file with the same id.
-  Future<void> save(SavedPlan plan) async {
-    final dir = Directory(_directory);
-    if (!dir.existsSync()) {
-      await dir.create(recursive: true);
-    }
-    await File('$_directory/${plan.id}.json').writeAsString(
-      jsonEncode(plan.toJson()),
-    );
-  }
+  /// Writes [plan] to the store, replacing any entry with the same id.
+  Future<void> save(SavedPlan plan);
 
   /// Deletes the plan with [id], when it exists.
-  Future<void> delete(String id) async {
-    final file = File('$_directory/$id.json');
-    if (file.existsSync()) {
-      await file.delete();
-    }
-  }
+  Future<void> delete(String id);
+}
+
+/// Stores generated plans on the platform's natural medium.
+final class PlanStore {
+  /// Creates a store rooted at [directory], or at the platform default.
+  ///
+  /// The directory argument is only meaningful on desktop; the web backend
+  /// keeps its plans in `window.localStorage` and ignores it.
+  PlanStore({String? directory}) : _backend = createPlanStoreBackend(directory);
+
+  final PlanStoreBackend _backend;
+
+  /// The default storage directory (a virtual key on the web).
+  static String defaultDirectory() => platformDefaultDirectory();
+
+  /// The storage directory path.
+  String get directory => _backend.directory;
+
+  /// Lists stored plans, newest first.
+  Future<List<SavedPlan>> list() => _backend.list();
+
+  /// Writes [plan] to the store, replacing any file with the same id.
+  Future<void> save(SavedPlan plan) => _backend.save(plan);
+
+  /// Deletes the plan with [id], when it exists.
+  Future<void> delete(String id) => _backend.delete(id);
 }

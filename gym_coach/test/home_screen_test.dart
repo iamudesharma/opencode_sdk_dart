@@ -10,7 +10,9 @@ import 'package:gym_coach/src/home_screen.dart';
 import 'package:gym_coach/src/plan.dart';
 import 'package:gym_coach/src/plan_request.dart';
 import 'package:gym_coach/src/plan_store.dart';
-import 'package:gym_coach/main.dart' show gymCoachTheme;
+import 'package:gym_coach/main.dart' show openFitTheme;
+import 'package:opencode_sdk_dart/opencode_sdk_dart.dart'
+    show PromptInputFileAttachment;
 
 /// A plan fixture with one day, one meal and a safety note.
 WorkoutPlan fixturePlan() => WorkoutPlan(
@@ -45,13 +47,23 @@ WorkoutPlan fixturePlan() => WorkoutPlan(
 
 /// A service that answers from fixtures instead of the OpenCode server.
 final class FakeCoachService extends CoachService {
-  FakeCoachService({this.failCatalog = false, this.failTyped = false});
+  FakeCoachService({
+    this.failCatalog = false,
+    this.failTyped = false,
+    this.chatDelay = const Duration(milliseconds: 20),
+  });
 
   final bool failCatalog;
   final bool failTyped;
+  final Duration chatDelay;
   final generated = <PlanRequest>[];
   final typedRequests = <PlanRequest>[];
+  final chatRequests = <String>[];
+  final chatAttachments = <List<PromptInputFileAttachment>?>[];
   var cancelled = false;
+
+  @override
+  void cancel() => cancelled = true;
 
   @override
   Future<List<CoachModel>> listModels() async {
@@ -66,6 +78,8 @@ final class FakeCoachService extends CoachService {
   Future<TypedPlanResult> generateTypedPlan({
     required String modelId,
     required PlanRequest request,
+    List<PromptInputFileAttachment>? attachments,
+    void Function(int receivedCharacters)? onProgress,
   }) async {
     typedRequests.add(request);
     if (failTyped) {
@@ -73,6 +87,7 @@ final class FakeCoachService extends CoachService {
         'The model answered with text that did not match the plan schema.',
       );
     }
+    onProgress?.call(512);
     return TypedPlanResult(
       plan: fixturePlan(),
       usage: GenerationUsage(totalTokens: 128),
@@ -84,6 +99,7 @@ final class FakeCoachService extends CoachService {
   Stream<PlanEvent> generatePlan({
     required String modelId,
     required PlanRequest request,
+    List<PromptInputFileAttachment>? attachments,
   }) async* {
     generated.add(request);
     yield const PlanText('PLAN OVERVIEW\n');
@@ -95,6 +111,27 @@ final class FakeCoachService extends CoachService {
       usage: GenerationUsage(totalTokens: 42),
     );
   }
+
+  @override
+  Stream<CoachChatEvent> askCoach({
+    required String text,
+    List<PromptInputFileAttachment>? attachments,
+  }) async* {
+    chatRequests.add(text);
+    chatAttachments.add(attachments);
+    yield const CoachChatDelta('Try ');
+    await Future<void>.delayed(chatDelay);
+    if (cancelled) {
+      yield const CoachChatDone('', cancelled: true);
+      return;
+    }
+    yield const CoachChatDelta('rest 60s ');
+    yield const CoachChatDelta('between sets.');
+    yield CoachChatDone(
+      'Try rest 60s between sets.',
+      usage: GenerationUsage(totalTokens: 12),
+    );
+  }
 }
 
 void main() {
@@ -102,6 +139,13 @@ void main() {
   /// laid out (list views do not build off-screen children).
   void useDesktopViewport(WidgetTester tester) {
     tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+  }
+
+  /// The phone viewport the responsive shell targets.
+  void useNarrowViewport(WidgetTester tester) {
+    tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
   }
@@ -121,12 +165,23 @@ void main() {
   Future<void> pumpApp(WidgetTester tester, CoachService service) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: gymCoachTheme(),
+        theme: openFitTheme(),
         home: HomeScreen(service: service, store: store),
       ),
     );
     await tester.pumpAndSettle();
   }
+
+  Future<void> generateTyped(WidgetTester tester) async {
+    await tester.tap(find.text('Generate plan'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+
+  Finder navDestination(String label) => find.descendant(
+    of: find.byType(NavigationBar),
+    matching: find.text(label),
+  );
 
   testWidgets('generates a typed plan and renders day tabs and meals', (
     tester,
@@ -138,9 +193,7 @@ void main() {
     // Typed mode is the default.
     expect(find.text('Typed plan'), findsOneWidget);
 
-    await tester.tap(find.text('Generate plan'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await generateTyped(tester);
 
     expect(service.typedRequests, hasLength(1));
     expect(service.generated, isEmpty);
@@ -207,9 +260,7 @@ void main() {
     await tester.tap(find.text('Use in plan'), warnIfMissed: true);
     await tester.pump();
 
-    await tester.tap(find.text('Generate plan'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await generateTyped(tester);
 
     final request = service.typedRequests.single;
     expect(request.nutritionTargets, isNotNull);
@@ -224,9 +275,7 @@ void main() {
     final service = FakeCoachService(failTyped: true);
     await pumpApp(tester, service);
 
-    await tester.tap(find.text('Generate plan'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await generateTyped(tester);
 
     expect(find.text('Generation failed'), findsOneWidget);
     expect(
@@ -278,7 +327,7 @@ void main() {
     useDesktopViewport(tester);
     await tester.pumpWidget(
       MaterialApp(
-        theme: gymCoachTheme(),
+        theme: openFitTheme(),
         home: HomeScreen(
           service: FakeCoachService(failCatalog: true),
           store: store,
@@ -295,5 +344,191 @@ void main() {
 
     expect(find.text('OpenCode server unreachable'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('narrow layout renders the navigation bar and switches tabs', (
+    tester,
+  ) async {
+    useNarrowViewport(tester);
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    IndexedStack tabs() =>
+        tester.widget<IndexedStack>(find.byKey(const ValueKey('tabs')));
+    expect(tabs().index, 0);
+
+    await tester.tap(navDestination('Workout'));
+    await tester.pumpAndSettle();
+    expect(tabs().index, 1);
+
+    await tester.tap(navDestination('Coach'));
+    await tester.pumpAndSettle();
+    expect(tabs().index, 2);
+
+    await tester.tap(navDestination('History'));
+    await tester.pumpAndSettle();
+    expect(tabs().index, 3);
+  });
+
+  testWidgets('exercise toggle updates the day progress', (tester) async {
+    useDesktopViewport(tester);
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    await generateTyped(tester);
+
+    expect(find.text('0/2 done'), findsOneWidget);
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    expect(find.text('1/2 done'), findsOneWidget);
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    expect(find.text('0/2 done'), findsOneWidget);
+  });
+
+  testWidgets('rest timer starts and counts down in the day header', (
+    tester,
+  ) async {
+    useDesktopViewport(tester);
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    await generateTyped(tester);
+
+    await tester.tap(find.byTooltip('Rest timer').first);
+    await tester.pump();
+    // The fixture prescription says `rest 90s`.
+    expect(find.text('01:30'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('01:29'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('01:28'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Stop rest timer'));
+    await tester.pump();
+    expect(find.text('01:28'), findsNothing);
+  });
+
+  testWidgets('macro bars compare the food plan with applied targets', (
+    tester,
+  ) async {
+    useDesktopViewport(tester);
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    await tester.scrollUntilVisible(
+      find.text('Use in plan'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('Use in plan'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use in plan'), warnIfMissed: true);
+    await tester.pump();
+
+    await generateTyped(tester);
+
+    expect(find.text('TARGETS VS PLAN'), findsOneWidget);
+    expect(find.text('Calories'), findsOneWidget);
+    expect(find.textContaining('/ 2740 kcal'), findsOneWidget);
+    expect(find.text('Protein'), findsOneWidget);
+    expect(find.textContaining('/ 144 g'), findsOneWidget);
+  });
+
+  testWidgets('ask coach streams bubbles and rebuilds with the note', (
+    tester,
+  ) async {
+    useNarrowViewport(tester);
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    await tester.tap(navDestination('Coach'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('coach_input')),
+      'My knee hurts after squats',
+    );
+    await tester.tap(find.byKey(const ValueKey('coach_send')));
+    await tester.pump();
+    expect(find.text('My knee hurts after squats'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.textContaining('rest 60s between sets'), findsOneWidget);
+
+    await tester.tap(find.text('Rebuild plan with this note'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(service.typedRequests, hasLength(1));
+    expect(
+      service.typedRequests.single.notes,
+      contains('rest 60s between sets'),
+    );
+  });
+
+  testWidgets('ask coach stop cancels the in-flight turn', (tester) async {
+    useNarrowViewport(tester);
+    final service = FakeCoachService(
+      chatDelay: const Duration(milliseconds: 300),
+    );
+    await pumpApp(tester, service);
+
+    await tester.tap(navDestination('Coach'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const ValueKey('coach_input')), 'hello');
+    await tester.tap(find.byKey(const ValueKey('coach_send')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('coach_stop')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('coach_stop')));
+    await tester.pump();
+    expect(service.cancelled, isTrue);
+
+    // The fake finishes the cancelled turn; Send comes back.
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('coach_send')), findsOneWidget);
+  });
+
+  testWidgets('history tab lists and loads a seeded plan', (tester) async {
+    useNarrowViewport(tester);
+    File('${temp.path}/plan-seed.json').writeAsStringSync(
+      jsonEncode({
+        'id': 'plan-seed',
+        'createdAt': DateTime(2026, 10, 16, 9).toIso8601String(),
+        'modelId': kPreferredModelId,
+        'title': 'Lose fat · 4 days · LongCat 2.5 Preview Free',
+        'markdown': '# Training plan\nSeed.',
+        'rawText': 'PLAN OVERVIEW\nSeed plan text.',
+      }),
+    );
+
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    await tester.tap(navDestination('History'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Lose fat · 4 days · LongCat 2.5 Preview Free'),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.text('Lose fat · 4 days · LongCat 2.5 Preview Free'),
+    );
+    await tester.pumpAndSettle();
+
+    // Loading switches to the Workout tab with the saved text.
+    final tabs = tester.widget<IndexedStack>(
+      find.byKey(const ValueKey('tabs')),
+    );
+    expect(tabs.index, 1);
+    expect(find.textContaining('Seed plan text'), findsOneWidget);
   });
 }

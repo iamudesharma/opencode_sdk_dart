@@ -8,8 +8,8 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
-    self.title = "Gym Coach"
-    self.minSize = NSSize(width: 980, height: 640)
+    self.title = "OpenFit"
+    self.minSize = NSSize(width: 420, height: 600)
     self.setContentSize(NSSize(width: 1240, height: 820))
     self.center()
 

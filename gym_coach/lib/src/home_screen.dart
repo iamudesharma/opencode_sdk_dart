@@ -1,19 +1,25 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:genkit/genkit.dart' show GenerationUsage;
+import 'package:opencode_sdk_dart/opencode_sdk_dart.dart'
+    show PromptInputFileAttachment;
 
+import 'attachments.dart';
+import 'coach_chat.dart';
 import 'coach_service.dart';
+import 'history_view.dart';
 import 'macros.dart';
 import 'plan.dart';
 import 'plan_body.dart';
+import 'plan_export.dart';
 import 'plan_request.dart';
 import 'plan_store.dart';
 import 'plan_view.dart';
+import 'style.dart';
 
-/// How the plan pane renders the generation.
+/// How the workspace renders the generation.
 enum PlanMode {
   /// Structured output parsed into a typed plan.
   typed('Typed plan', Icons.view_week_outlined),
@@ -26,6 +32,61 @@ enum PlanMode {
   final String label;
   final IconData icon;
 }
+
+/// Below this width the phone shell (AppBar + navigation bar) is used.
+const double kOpenFitBreakpoint = 840;
+
+/// One-tap starting points shown above the config cards.
+final class _Preset {
+  const _Preset({
+    required this.title,
+    required this.subtitle,
+    required this.request,
+  });
+
+  final String title;
+  final String subtitle;
+  final PlanRequest request;
+}
+
+const _presets = <_Preset>[
+  _Preset(
+    title: 'First workout',
+    subtitle: 'Beginner · 3-day full-body week',
+    request: PlanRequest(
+      goal: FitnessGoal.buildMuscle,
+      level: ExperienceLevel.beginner,
+      daysPerWeek: 3,
+      sessionMinutes: 45,
+      equipment: GymEquipment.fullGym,
+      notes: 'Brand-new to lifting.',
+    ),
+  ),
+  _Preset(
+    title: 'Fat loss + food',
+    subtitle: '4 days · sample food day',
+    request: PlanRequest(
+      goal: FitnessGoal.loseFat,
+      level: ExperienceLevel.intermediate,
+      daysPerWeek: 4,
+      sessionMinutes: 45,
+      equipment: GymEquipment.dumbbells,
+      notes: 'Desk job, wants to keep muscle.',
+    ),
+  ),
+  _Preset(
+    title: 'Hotel room week',
+    subtitle: 'No equipment · 30 min · 4 days',
+    request: PlanRequest(
+      goal: FitnessGoal.endurance,
+      level: ExperienceLevel.beginner,
+      daysPerWeek: 4,
+      sessionMinutes: 30,
+      equipment: GymEquipment.bodyweight,
+      notes: 'Travel week, only a floor and a chair.',
+    ),
+  ),
+];
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.service, this.store});
@@ -48,9 +109,14 @@ class _HomeScreenState extends State<HomeScreen> {
   final _weightController = TextEditingController(text: '80');
   final _heightController = TextEditingController(text: '178');
   final _ageController = TextEditingController(text: '30');
-  final _output = StringBuffer();
 
-  List<CoachModel> _models = const [];
+  // Streaming state lives in notifiers so token deltas and the elapsed ticker
+  // never rebuild the config pane or the model dropdown.
+  final _elapsed = ValueNotifier<Duration>(Duration.zero);
+  final _streamText = ValueNotifier<String>('');
+  final _receivedChars = ValueNotifier<int>(0);
+
+  List<DropdownMenuEntry<CoachModel>> _modelEntries = const [];
   CoachModel? _model;
   String? _catalogError;
   bool _loadingModels = true;
@@ -67,16 +133,29 @@ class _HomeScreenState extends State<HomeScreen> {
   NutritionGoal _nutritionGoal = NutritionGoal.maintain;
   bool _targetsApplied = false;
 
+  var _attachments = const <PickedAttachment>[];
+
   StreamSubscription<PlanEvent>? _subscription;
   Timer? _ticker;
   Stopwatch? _watch;
   bool _generating = false;
   String? _error;
   PlanCompleted? _completed;
-
   PlanMode _mode = PlanMode.typed;
   WorkoutPlan? _plan;
   GenerationUsage? _typedUsage;
+  double? _typedLatencyMs;
+
+  // Phone shell state.
+  int _tab = 0;
+  bool _isNarrow = false;
+
+  // Ask Coach state.
+  final _chatMessages = <CoachChatMessage>[];
+  final _chatActivity = ValueNotifier<int>(0);
+  StreamSubscription<CoachChatEvent>? _chatSubscription;
+  bool _chatSending = false;
+  bool _chatOpen = false;
 
   @override
   void initState() {
@@ -88,13 +167,23 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _ticker?.cancel();
     _subscription?.cancel();
+    _chatSubscription?.cancel();
     _notesController.dispose();
     _scrollController.dispose();
     _weightController.dispose();
     _heightController.dispose();
     _ageController.dispose();
+    _elapsed.dispose();
+    _streamText.dispose();
+    _receivedChars.dispose();
+    _chatActivity.dispose();
+    for (final message in _chatMessages) {
+      message.dispose();
+    }
     super.dispose();
   }
+
+  // Catalog ------------------------------------------------------------------
 
   Future<void> _loadModels() async {
     setState(() {
@@ -105,7 +194,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final models = await _service.listModels();
       if (!mounted) return;
       setState(() {
-        _models = models;
+        // Memoized once per catalog load; token deltas never rebuild it.
+        _modelEntries = [
+          for (final model in models)
+            DropdownMenuEntry(
+              value: model,
+              label: model.id == model.label
+                  ? model.id
+                  : '${model.label} · ${model.id}',
+            ),
+        ];
         _loadingModels = false;
         _model = models.isEmpty
             ? null
@@ -118,12 +216,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() {
         _loadingModels = false;
-        _catalogError = error
-            .toString()
-            .replaceFirst(RegExp(r'^GenkitException: '), '');
+        _catalogError = _cleanError(error);
       });
     }
   }
+
+  // Request ------------------------------------------------------------------
 
   MacroTargets? get _targets {
     final weight = double.tryParse(_weightController.text.replaceAll(',', '.'));
@@ -152,6 +250,12 @@ class _HomeScreenState extends State<HomeScreen> {
     nutritionTargets: _targetsApplied ? _targets?.promptLine : null,
   );
 
+  List<PromptInputFileAttachment>? get _attachmentList => _attachments.isEmpty
+      ? null
+      : [for (final attachment in _attachments) attachment.attachment];
+
+  // Generation ---------------------------------------------------------------
+
   void _generate({PlanRequest? request}) {
     final model = _model;
     if (model == null || _generating) return;
@@ -174,12 +278,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _completed = null;
       _plan = null;
       _typedUsage = null;
-      _output.clear();
+      _typedLatencyMs = null;
+      _streamText.value = '';
+      _receivedChars.value = 0;
       _watch = Stopwatch()..start();
+      _elapsed.value = Duration.zero;
     });
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (mounted) setState(() {});
+      _elapsed.value = _watch?.elapsed ?? Duration.zero;
     });
 
     _subscription?.cancel();
@@ -187,13 +294,17 @@ class _HomeScreenState extends State<HomeScreen> {
       unawaited(_generateTyped(model, input));
     } else {
       _subscription = _service
-          .generatePlan(modelId: model.id, request: input)
+          .generatePlan(
+            modelId: model.id,
+            request: input,
+            attachments: _attachmentList,
+          )
           .listen(
             (event) {
               if (!mounted) return;
               switch (event) {
                 case PlanText(:final text):
-                  setState(() => _output.write(text));
+                  _streamText.value += text;
                   _scheduleAutoScroll();
                 case PlanCompleted():
                   setState(() => _completed = event);
@@ -224,11 +335,14 @@ class _HomeScreenState extends State<HomeScreen> {
       final result = await _service.generateTypedPlan(
         modelId: model.id,
         request: input,
+        attachments: _attachmentList,
+        onProgress: (received) => _receivedChars.value = received,
       );
       if (!mounted) return;
       setState(() {
         _plan = result.plan;
         _typedUsage = result.usage;
+        _typedLatencyMs = result.latencyMs;
       });
       // History is best-effort and must not delay the result on screen.
       unawaited(
@@ -293,12 +407,155 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  bool get _hasPlan => _plan != null || _output.isNotEmpty;
+  // Ask Coach ----------------------------------------------------------------
+
+  void _sendChat(String text, List<PickedAttachment> attachments) {
+    setState(() {
+      _chatOpen = true;
+      _chatMessages.add(CoachChatMessage.user(text));
+      _chatMessages.add(CoachChatMessage.coach()..streaming.value = true);
+      _chatSending = true;
+    });
+    _chatActivity.value++;
+    _chatSubscription?.cancel();
+    _chatSubscription = _service
+        .askCoach(
+          text: text,
+          attachments: attachments.isEmpty
+              ? null
+              : [for (final attachment in attachments) attachment.attachment],
+        )
+        .listen(
+          (event) {
+            if (!mounted || _chatMessages.isEmpty) return;
+            final coach = _chatMessages.last;
+            switch (event) {
+              case CoachChatDelta(:final text):
+                coach.streamed.value += text;
+              case CoachChatReasoning(:final text):
+                coach.reasoning.value += text;
+              case CoachChatDone(:final text, :final cancelled):
+                if (text.isNotEmpty) coach.text = text;
+                coach.cancelled = cancelled;
+                coach.streaming.value = false;
+                setState(() => _chatSending = false);
+            }
+            _chatActivity.value++;
+          },
+          onError: (Object error) {
+            if (!mounted || _chatMessages.isEmpty) return;
+            final coach = _chatMessages.last;
+            coach.text = 'Coach error: $error';
+            coach.streaming.value = false;
+            setState(() => _chatSending = false);
+          },
+          onDone: () {
+            if (!mounted || !_chatSending || _chatMessages.isEmpty) return;
+            _chatMessages.last.streaming.value = false;
+            setState(() => _chatSending = false);
+          },
+        );
+  }
+
+  /// Appends the coach's note to the request notes and re-runs the typed plan.
+  void _rebuildFromNote(String note) {
+    final trimmed = note.trim();
+    if (trimmed.isEmpty || _generating || _model == null) return;
+    final existing = _notesController.text.trim();
+    _notesController.text = existing.isEmpty ? trimmed : '$existing\n$trimmed';
+    _mode = PlanMode.typed;
+    setState(() => _tab = 1);
+    _generate();
+  }
+
+  // History ------------------------------------------------------------------
+
+  void _loadSavedPlan(SavedPlan saved) {
+    setState(() {
+      _error = null;
+      _completed = null;
+      _plan = null;
+      _streamText.value = '';
+      if (saved.structured case final structured?) {
+        try {
+          _plan = WorkoutPlan.fromJson(structured);
+          _mode = PlanMode.typed;
+        } on Object {
+          _plan = null;
+        }
+      }
+      final raw = saved.rawText;
+      if (_plan == null && raw != null) {
+        _streamText.value = raw;
+        _mode = PlanMode.text;
+      }
+      _tab = 1;
+    });
+  }
+
+  Future<void> _openHistory() async {
+    if (_isNarrow) {
+      setState(() => _tab = 3);
+      return;
+    }
+    final theme = Theme.of(context);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Insets.xl,
+                  Insets.lg,
+                  Insets.sm,
+                  0,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Plan history',
+                        style: theme.textTheme.titleMedium!.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.close, size: 20),
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: PlanHistoryList(
+                  store: _store,
+                  onLoad: (plan) {
+                    Navigator.of(dialogContext).pop();
+                    _loadSavedPlan(plan);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Clipboard / export -------------------------------------------------------
+
+  bool get _hasPlan => _plan != null || _streamText.value.isNotEmpty;
 
   String get _currentMarkdown {
     final plan = _plan;
     if (plan != null) return plan.toMarkdown();
-    return _output.toString();
+    return _streamText.value;
   }
 
   Future<void> _copyPlan() async {
@@ -312,20 +569,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _exportPlan() async {
     final markdown = _currentMarkdown.trim();
     if (markdown.isEmpty) return;
-    final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;
-    var directory = Directory('$home/Downloads');
-    if (!directory.existsSync()) directory = Directory(home);
-    final file = File(
-      '${directory.path}/gym_coach_plan_'
-      '${DateTime.now().millisecondsSinceEpoch}.md',
-    );
     try {
-      await file.create(recursive: true);
-      await file.writeAsString(markdown);
+      final message = await exportPlanMarkdown(markdown: markdown);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Exported to ${file.path}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -334,84 +583,258 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _openHistory() async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => _HistoryDialog(
-        store: _store,
-        onLoad: (saved) {
-          setState(() {
-            _error = null;
-            _completed = null;
-            _plan = null;
-            if (saved.structured case final structured?) {
-              try {
-                _plan = WorkoutPlan.fromJson(structured);
-                _mode = PlanMode.typed;
-              } on Object {
-                _plan = null;
-              }
-            }
-            final raw = saved.rawText;
-            if (_plan == null && raw != null) {
-              _output
-                ..clear()
-                ..write(raw);
-              _mode = PlanMode.text;
-            }
-          });
-        },
-      ),
-    );
+  // Attachments --------------------------------------------------------------
+
+  Future<void> _pickAttachment() async {
+    PickedAttachment? picked;
+    try {
+      picked = await pickAttachment();
+    } on Object {
+      picked = null;
+    }
+    if (!mounted) return;
+    if (picked == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Attachments need the LAN host (dart run tool/lan_host.dart).',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() => _attachments = [..._attachments, picked!]);
   }
+
+  void _removeAttachment(PickedAttachment attachment) {
+    setState(() {
+      _attachments = [
+        for (final kept in _attachments)
+          if (kept != attachment) kept,
+      ];
+    });
+  }
+
+  // Shell --------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= kOpenFitBreakpoint;
+        _isNarrow = !wide;
+        return wide ? _buildWide(context) : _buildNarrow(context);
+      },
+    );
+  }
+
+  Widget _buildWide(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       body: Row(
         children: [
-          SizedBox(width: 340, child: _buildForm(theme)),
+          SizedBox(width: 360, child: _buildConfigPane(theme)),
           VerticalDivider(
             width: 1,
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
           ),
-          Expanded(child: _buildPlan(theme)),
+          Expanded(child: _buildWorkspace(theme)),
         ],
       ),
     );
   }
 
-  // Form ---------------------------------------------------------------------
+  Widget _buildNarrow(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 64,
+        titleSpacing: Insets.lg,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'OpenFit',
+              style: theme.textTheme.titleLarge!.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+              ),
+            ),
+            _statusLine(theme),
+          ],
+        ),
+        actions: [
+          _modeToggle(theme, compact: true),
+          IconButton(
+            tooltip: 'History',
+            onPressed: _openHistory,
+            icon: const Icon(Icons.history, size: 20),
+          ),
+          IconButton(
+            tooltip: 'Export Markdown',
+            onPressed: _hasPlan ? _exportPlan : null,
+            icon: const Icon(Icons.ios_share, size: 20),
+          ),
+          IconButton(
+            tooltip: 'Copy plan',
+            onPressed: _hasPlan ? _copyPlan : null,
+            icon: const Icon(Icons.copy_all_outlined, size: 20),
+          ),
+          const SizedBox(width: Insets.xs),
+        ],
+      ),
+      body: IndexedStack(
+        key: const ValueKey('tabs'),
+        index: _tab,
+        children: [
+          _buildBuildTab(theme),
+          _buildWorkoutTab(theme),
+          CoachChatPanel(
+            messages: _chatMessages,
+            sending: _chatSending,
+            activity: _chatActivity,
+            onSend: _sendChat,
+            onStop: _cancel,
+            onRebuildPlan: _rebuildFromNote,
+          ),
+          _buildHistoryTab(theme),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (index) => setState(() => _tab = index),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.tune_outlined),
+            selectedIcon: Icon(Icons.tune),
+            label: 'Build',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.fitness_center_outlined),
+            selectedIcon: Icon(Icons.fitness_center),
+            label: 'Workout',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.forum_outlined),
+            selectedIcon: Icon(Icons.forum),
+            label: 'Coach',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.history_outlined),
+            selectedIcon: Icon(Icons.history),
+            label: 'History',
+          ),
+        ],
+      ),
+    );
+  }
 
-  Widget _buildForm(ThemeData theme) {
+  Widget _buildBuildTab(ThemeData theme) {
+    return Column(
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              Insets.lg,
+              Insets.lg,
+              Insets.lg,
+              Insets.sm,
+            ),
+            children: [
+              _presetStrip(theme, horizontal: true),
+              const SizedBox(height: Insets.lg),
+              ..._configCards(theme),
+            ],
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              Insets.lg,
+              Insets.sm,
+              Insets.lg,
+              Insets.md,
+            ),
+            child: _generateButton(theme, expanded: true),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWorkoutTab(ThemeData theme) =>
+      _workspaceBody(theme, padded: true);
+
+  Widget _buildHistoryTab(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Insets.lg,
+            Insets.lg,
+            Insets.lg,
+            0,
+          ),
+          child: Text(
+            'Saved plans',
+            style: theme.textTheme.titleMedium!.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Expanded(
+          child: PlanHistoryList(store: _store, onLoad: _loadSavedPlan),
+        ),
+      ],
+    );
+  }
+
+  // Config pane (wide) / Build tab (narrow) ----------------------------------
+
+  Widget _buildConfigPane(ThemeData theme) {
     return Material(
       color: theme.colorScheme.surfaceContainerLowest,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+            padding: const EdgeInsets.fromLTRB(
+              Insets.xl,
+              Insets.xl,
+              Insets.xl,
+              Insets.md,
+            ),
             child: Row(
               children: [
-                Icon(
-                  Icons.fitness_center,
-                  color: theme.colorScheme.primary,
-                  size: 26,
+                Container(
+                  padding: const EdgeInsets.all(Insets.sm),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.14),
+                    borderRadius: Radii.control,
+                  ),
+                  child: Icon(
+                    Icons.fitness_center,
+                    color: theme.colorScheme.primary,
+                    size: 22,
+                  ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: Insets.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Gym Coach',
+                        'OpenFit',
                         style: theme.textTheme.titleLarge!.copyWith(
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
                         ),
                       ),
                       Text(
-                        'streamed by LongCat 2.5 via OpenCode',
+                        'your AI strength & nutrition coach',
                         style: theme.textTheme.bodySmall!.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
@@ -424,153 +847,338 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+              padding: const EdgeInsets.fromLTRB(
+                Insets.xl,
+                Insets.sm,
+                Insets.xl,
+                Insets.lg,
+              ),
               children: [
-                _label(theme, 'Goal'),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final goal in FitnessGoal.values)
-                      ChoiceChip(
-                        label: Text(goal.label),
-                        selected: _goal == goal,
-                        onSelected: _generating
-                            ? null
-                            : (_) => setState(() => _goal = goal),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _label(theme, 'Experience'),
-                SegmentedButton<ExperienceLevel>(
-                  segments: [
-                    for (final level in ExperienceLevel.values)
-                      ButtonSegment(value: level, label: Text(level.label)),
-                  ],
-                  selected: {_level},
-                  onSelectionChanged: _generating
-                      ? null
-                      : (selection) =>
-                            setState(() => _level = selection.first),
-                  showSelectedIcon: false,
-                  style: ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    padding: const WidgetStatePropertyAll(
-                      EdgeInsets.symmetric(horizontal: 4),
-                    ),
-                    textStyle: WidgetStatePropertyAll(
-                      theme.textTheme.bodySmall!.copyWith(fontSize: 11.5),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _label(theme, 'Days per week: $_days'),
-                Slider(
-                  value: _days.toDouble(),
-                  min: 2,
-                  max: 6,
-                  divisions: 4,
-                  label: '$_days days',
-                  onChanged: _generating
-                      ? null
-                      : (value) => setState(() => _days = value.round()),
-                ),
-                _label(theme, 'Session length'),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    for (final minutes in const [30, 45, 60, 90])
-                      ChoiceChip(
-                        label: Text('$minutes min'),
-                        selected: _minutes == minutes,
-                        onSelected: _generating
-                            ? null
-                            : (_) => setState(() => _minutes = minutes),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _label(theme, 'Equipment'),
-                DropdownButtonFormField<GymEquipment>(
-                  initialValue: _equipment,
-                  isDense: true,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                  ),
-                  items: [
-                    for (final equipment in GymEquipment.values)
-                      DropdownMenuItem(
-                        value: equipment,
-                        child: Text(equipment.label),
-                      ),
-                  ],
-                  onChanged: _generating
-                      ? null
-                      : (value) => setState(
-                          () => _equipment = value ?? _equipment,
-                        ),
-                ),
-                const SizedBox(height: 16),
-                _label(theme, 'Notes (injuries, preferences)'),
-                TextField(
-                  controller: _notesController,
-                  enabled: !_generating,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    hintText: 'e.g. bad left knee, hates burpees',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _nutrition,
-                  onChanged: _generating
-                      ? null
-                      : (value) => setState(() => _nutrition = value),
-                  title: Text(
-                    'Include food plan',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  subtitle: Text(
-                    'Calories, protein target and a sample day',
-                    style: theme.textTheme.bodySmall!.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _label(theme, 'Macro calculator'),
-                _buildMacroCard(theme),
-                const SizedBox(height: 16),
-                _label(theme, 'Model'),
-                _buildModelPicker(theme),
+                _presetStrip(theme, horizontal: false),
+                const SizedBox(height: Insets.md),
+                ..._configCards(theme),
               ],
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-            child: _generating
-                ? FilledButton.tonalIcon(
-                    onPressed: _cancel,
-                    icon: const Icon(Icons.stop_circle_outlined),
-                    label: const Text('Stop'),
-                  )
-                : FilledButton.icon(
-                    onPressed: _model == null ? null : () => _generate(),
-                    icon: const Icon(Icons.auto_awesome),
-                    label: const Text('Generate plan'),
-                  ),
+            padding: const EdgeInsets.fromLTRB(
+              Insets.xl,
+              Insets.md,
+              Insets.xl,
+              Insets.xl,
+            ),
+            child: _generateButton(theme, expanded: true),
           ),
         ],
       ),
     );
   }
+
+  List<Widget> _configCards(ThemeData theme) => [
+    _goalCard(theme),
+    const SizedBox(height: Insets.md),
+    _scheduleCard(theme),
+    const SizedBox(height: Insets.md),
+    _equipmentCard(theme),
+    const SizedBox(height: Insets.md),
+    _notesCard(theme),
+    const SizedBox(height: Insets.md),
+    _foodCard(theme),
+    const SizedBox(height: Insets.md),
+    _modelCard(theme),
+  ];
+
+  Widget _goalCard(ThemeData theme) => AppCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('Goal & experience'),
+        const SizedBox(height: Insets.md),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final goal in FitnessGoal.values)
+              ChoiceChip(
+                label: Text(goal.label),
+                selected: _goal == goal,
+                onSelected: _generating
+                    ? null
+                    : (_) => setState(() => _goal = goal),
+              ),
+          ],
+        ),
+        const SizedBox(height: Insets.md),
+        SegmentedButton<ExperienceLevel>(
+          segments: [
+            for (final level in ExperienceLevel.values)
+              ButtonSegment(value: level, label: Text(level.label)),
+          ],
+          selected: {_level},
+          onSelectionChanged: _generating
+              ? null
+              : (selection) => setState(() => _level = selection.first),
+          showSelectedIcon: false,
+          style: _compactSegments(theme),
+        ),
+      ],
+    ),
+  );
+
+  Widget _scheduleCard(ThemeData theme) => AppCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Expanded(child: SectionLabel('Schedule')),
+            StatChip(label: '$_days days · $_minutes min'),
+          ],
+        ),
+        Slider(
+          value: _days.toDouble(),
+          min: 2,
+          max: 6,
+          divisions: 4,
+          label: '$_days days',
+          onChanged: _generating
+              ? null
+              : (value) => setState(() => _days = value.round()),
+        ),
+        const SizedBox(height: Insets.xs),
+        Text(
+          'Session length',
+          style: theme.textTheme.bodySmall!.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: Insets.sm),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final minutes in const [30, 45, 60, 90])
+              ChoiceChip(
+                label: Text('$minutes min'),
+                selected: _minutes == minutes,
+                onSelected: _generating
+                    ? null
+                    : (_) => setState(() => _minutes = minutes),
+              ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _equipmentCard(ThemeData theme) => AppCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('Equipment'),
+        const SizedBox(height: Insets.md),
+        DropdownButtonFormField<GymEquipment>(
+          initialValue: _equipment,
+          isDense: true,
+          isExpanded: true,
+          items: [
+            for (final equipment in GymEquipment.values)
+              DropdownMenuItem(
+                value: equipment,
+                child: Text(equipment.label),
+              ),
+          ],
+          onChanged: _generating
+              ? null
+              : (value) => setState(() => _equipment = value ?? _equipment),
+        ),
+      ],
+    ),
+  );
+
+  Widget _notesCard(ThemeData theme) => AppCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('Notes & attachments'),
+        const SizedBox(height: Insets.md),
+        TextField(
+          controller: _notesController,
+          enabled: !_generating,
+          maxLines: 2,
+          decoration: InputDecoration(
+            hintText: 'e.g. bad left knee, hates burpees',
+            suffixIcon: IconButton(
+              key: const ValueKey('notes_attach'),
+              tooltip: 'Attach file',
+              onPressed: _generating ? null : _pickAttachment,
+              icon: const Icon(Icons.attach_file, size: 20),
+            ),
+          ),
+        ),
+        if (_attachments.isNotEmpty) ...[
+          const SizedBox(height: Insets.sm),
+          AttachmentChips(
+            attachments: _attachments,
+            onRemove: _removeAttachment,
+          ),
+        ],
+      ],
+    ),
+  );
+
+  Widget _foodCard(ThemeData theme) => AppCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Expanded(child: SectionLabel('Food plan')),
+            Switch(
+              value: _nutrition,
+              onChanged: _generating
+                  ? null
+                  : (value) => setState(() => _nutrition = value),
+            ),
+          ],
+        ),
+        Text(
+          'Calories, protein target and a sample day',
+          style: theme.textTheme.bodySmall!.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: Insets.lg),
+        const SectionLabel('Macro calculator'),
+        const SizedBox(height: Insets.md),
+        SegmentedButton<Sex>(
+          segments: [
+            for (final sex in Sex.values)
+              ButtonSegment(value: sex, label: Text(sex.label)),
+          ],
+          selected: {_sex},
+          onSelectionChanged: _generating
+              ? null
+              : (selection) => setState(() => _sex = selection.first),
+          showSelectedIcon: false,
+          style: _compactSegments(theme),
+        ),
+        const SizedBox(height: Insets.md),
+        Row(
+          children: [
+            Expanded(
+              child: _macroField('Weight', _weightController, suffix: 'kg'),
+            ),
+            const SizedBox(width: Insets.sm),
+            Expanded(
+              child: _macroField('Height', _heightController, suffix: 'cm'),
+            ),
+            const SizedBox(width: Insets.sm),
+            Expanded(child: _macroField('Age', _ageController)),
+          ],
+        ),
+        const SizedBox(height: Insets.md),
+        DropdownButtonFormField<ActivityLevel>(
+          initialValue: _activity,
+          isDense: true,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Activity'),
+          style: theme.textTheme.bodySmall!.copyWith(
+            color: theme.colorScheme.onSurface,
+          ),
+          items: [
+            for (final activity in ActivityLevel.values)
+              DropdownMenuItem(
+                value: activity,
+                child: Text('${activity.label} · ×${activity.factor}'),
+              ),
+          ],
+          onChanged: _generating
+              ? null
+              : (value) => setState(() => _activity = value ?? _activity),
+        ),
+        const SizedBox(height: Insets.md),
+        SegmentedButton<NutritionGoal>(
+          segments: [
+            for (final goal in NutritionGoal.values)
+              ButtonSegment(value: goal, label: Text(goal.shortLabel)),
+          ],
+          selected: {_nutritionGoal},
+          onSelectionChanged: _generating
+              ? null
+              : (selection) =>
+                    setState(() => _nutritionGoal = selection.first),
+          showSelectedIcon: false,
+          style: _compactSegments(theme),
+        ),
+        const SizedBox(height: Insets.md),
+        Text(
+          _targets?.summary ?? 'Enter weight, height and age.',
+          style: theme.textTheme.bodySmall!.copyWith(
+            fontWeight: FontWeight.w600,
+            color: _targets == null
+                ? theme.colorScheme.onSurfaceVariant
+                : theme.colorScheme.primary,
+          ),
+        ),
+        const SizedBox(height: Insets.sm),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.tonalIcon(
+            onPressed: _generating || _targets == null
+                ? null
+                : () => setState(() => _targetsApplied = !_targetsApplied),
+            icon: Icon(
+              _targetsApplied ? Icons.check : Icons.calculate_outlined,
+              size: 16,
+            ),
+            label: Text(
+              _targetsApplied ? 'Targets added to plan' : 'Use in plan',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _modelCard(ThemeData theme) => AppCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('Model'),
+        const SizedBox(height: Insets.md),
+        _buildModelPicker(theme),
+      ],
+    ),
+  );
+
+  Widget _macroField(
+    String label,
+    TextEditingController controller, {
+    String? suffix,
+  }) {
+    return TextField(
+      controller: controller,
+      enabled: !_generating,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: suffix,
+        isDense: true,
+      ),
+      onChanged: (_) => setState(() {}),
+    );
+  }
+
+  ButtonStyle _compactSegments(ThemeData theme) => ButtonStyle(
+    visualDensity: VisualDensity.compact,
+    padding: const WidgetStatePropertyAll(
+      EdgeInsets.symmetric(horizontal: 4),
+    ),
+    textStyle: WidgetStatePropertyAll(
+      theme.textTheme.bodySmall!.copyWith(fontSize: 11.5),
+    ),
+  );
 
   Widget _buildModelPicker(ThemeData theme) {
     if (_loadingModels) {
@@ -581,7 +1189,7 @@ class _HomeScreenState extends State<HomeScreen> {
             height: 14,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: Insets.sm),
           Text('Loading models…', style: theme.textTheme.bodySmall),
         ],
       );
@@ -596,14 +1204,14 @@ class _HomeScreenState extends State<HomeScreen> {
               color: theme.colorScheme.error,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: Insets.xs),
           Text(
             _catalogError!,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: Insets.sm),
           OutlinedButton.icon(
             onPressed: _loadModels,
             icon: const Icon(Icons.refresh, size: 16),
@@ -613,6 +1221,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     return DropdownMenu<CoachModel>(
+      key: const ValueKey('model_picker'),
       initialSelection: _model,
       enableFilter: true,
       enableSearch: true,
@@ -620,221 +1229,120 @@ class _HomeScreenState extends State<HomeScreen> {
       expandedInsets: EdgeInsets.zero,
       menuHeight: 420,
       label: const Text('Search 130+ models'),
-      dropdownMenuEntries: [
-        for (final model in _models)
-          DropdownMenuEntry(
-            value: model,
-            label: model.id == model.label
-                ? model.id
-                : '${model.label} · ${model.id}',
-          ),
-      ],
+      dropdownMenuEntries: _modelEntries,
       onSelected: _generating
           ? null
           : (model) => setState(() => _model = model),
     );
   }
 
-  Widget _label(ThemeData theme, String text) => Padding(
-    padding: const EdgeInsets.only(bottom: 6),
-    child: Text(
-      text.toUpperCase(),
-      style: theme.textTheme.labelSmall!.copyWith(
-        letterSpacing: 0.8,
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-    ),
-  );
-
-  // Macro calculator ----------------------------------------------------------
-
-  Widget _buildMacroCard(ThemeData theme) {
-    final targets = _targets;
-    final compactButton = ButtonStyle(
-      visualDensity: VisualDensity.compact,
-      padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 4),
-      ),
-      textStyle: WidgetStatePropertyAll(
-        theme.textTheme.bodySmall!.copyWith(fontSize: 11.5),
-      ),
-    );
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+  Widget _presetStrip(ThemeData theme, {required bool horizontal}) {
+    if (horizontal) {
+      return SizedBox(
+        height: 96,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _presets.length,
+          separatorBuilder: (context, index) =>
+              const SizedBox(width: Insets.sm),
+          itemBuilder: (context, index) => SizedBox(
+            width: 200,
+            child: _presetCard(theme, _presets[index]),
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SegmentedButton<Sex>(
-            segments: [
-              for (final sex in Sex.values)
-                ButtonSegment(value: sex, label: Text(sex.label)),
-            ],
-            selected: {_sex},
-            onSelectionChanged: _generating
-                ? null
-                : (selection) => setState(() => _sex = selection.first),
-            showSelectedIcon: false,
-            style: compactButton,
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _macroField(theme, 'Weight kg', _weightController),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _macroField(theme, 'Height cm', _heightController),
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: _macroField(theme, 'Age', _ageController)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<ActivityLevel>(
-            initialValue: _activity,
-            isDense: true,
-            decoration: const InputDecoration(
-              labelText: 'Activity',
-              border: OutlineInputBorder(),
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 8,
-              ),
-            ),
-            style: theme.textTheme.bodySmall!.copyWith(
-              color: theme.colorScheme.onSurface,
-            ),
-            items: [
-              for (final activity in ActivityLevel.values)
-                DropdownMenuItem(
-                  value: activity,
-                  child: Text('${activity.label} · ×${activity.factor}'),
-                ),
-            ],
-            onChanged: _generating
-                ? null
-                : (value) =>
-                      setState(() => _activity = value ?? _activity),
-          ),
-          const SizedBox(height: 10),
-          SegmentedButton<NutritionGoal>(
-            segments: [
-              for (final goal in NutritionGoal.values)
-                ButtonSegment(value: goal, label: Text(goal.shortLabel)),
-            ],
-            selected: {_nutritionGoal},
-            onSelectionChanged: _generating
-                ? null
-                : (selection) =>
-                      setState(() => _nutritionGoal = selection.first),
-            showSelectedIcon: false,
-            style: compactButton,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            targets?.summary ?? 'Enter weight, height and age.',
-            style: theme.textTheme.bodySmall!.copyWith(
-              fontWeight: FontWeight.w600,
-              color: targets == null
-                  ? theme.colorScheme.onSurfaceVariant
-                  : theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.tonalIcon(
-              onPressed: _generating || targets == null
-                  ? null
-                  : () =>
-                        setState(() => _targetsApplied = !_targetsApplied),
-              icon: Icon(
-                _targetsApplied ? Icons.check : Icons.calculate_outlined,
-                size: 16,
-              ),
-              label: Text(
-                _targetsApplied ? 'Targets added to plan' : 'Use in plan',
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _macroField(
-    ThemeData theme,
-    String label,
-    TextEditingController controller,
-  ) {
-    return TextField(
-      controller: controller,
-      enabled: !_generating,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      style: theme.textTheme.bodySmall,
-      decoration: InputDecoration(
-        labelText: label,
-        isDense: true,
-        border: const OutlineInputBorder(),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 10,
-        ),
-      ),
-      onChanged: (_) => setState(() {}),
-    );
-  }
-
-  // Plan pane ----------------------------------------------------------------
-
-  Widget _buildPlan(ThemeData theme) {
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(24, 18, 16, 14),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+        const SectionLabel('Quick starts'),
+        const SizedBox(height: Insets.sm),
+        for (final preset in _presets)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Insets.sm),
+            child: _presetCard(theme, preset),
+          ),
+      ],
+    );
+  }
+
+  Widget _presetCard(ThemeData theme, _Preset preset) => AppCard(
+    padding: const EdgeInsets.all(Insets.md),
+    onTap: _generating || _model == null
+        ? null
+        : () => _generate(request: preset.request),
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                preset.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
+              const SizedBox(height: 2),
+              Text(
+                preset.subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall!.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Icon(
+          Icons.play_arrow_rounded,
+          color: theme.colorScheme.primary,
+          size: 20,
+        ),
+      ],
+    ),
+  );
+
+  Widget _generateButton(ThemeData theme, {required bool expanded}) {
+    final button = _generating
+        ? FilledButton.tonalIcon(
+            key: const ValueKey('generate_button'),
+            onPressed: _cancel,
+            icon: const Icon(Icons.stop_circle_outlined),
+            label: const Text('Stop'),
+          )
+        : FilledButton.icon(
+            key: const ValueKey('generate_button'),
+            onPressed: _model == null ? null : () => _generate(),
+            icon: const Icon(Icons.auto_awesome),
+            label: const Text('Generate plan'),
+          );
+    return expanded ? SizedBox(width: double.infinity, child: button) : button;
+  }
+
+  // Workspace ----------------------------------------------------------------
+
+  Widget _buildWorkspace(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Insets.xl,
+            Insets.lg,
+            Insets.md,
+            Insets.md,
           ),
           child: Row(
             children: [
-              Expanded(child: _buildStatus(theme)),
-              const SizedBox(width: 12),
-              SegmentedButton<PlanMode>(
-                segments: [
-                  for (final mode in PlanMode.values)
-                    ButtonSegment(
-                      value: mode,
-                      label: Text(mode.label),
-                      icon: Icon(mode.icon, size: 15),
-                    ),
-                ],
-                selected: {_mode},
-                onSelectionChanged: _generating
-                    ? null
-                    : (selection) => setState(() => _mode = selection.first),
-                showSelectedIcon: false,
-                style: ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  textStyle: WidgetStatePropertyAll(
-                    theme.textTheme.bodySmall!.copyWith(fontSize: 11.5),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
+              Expanded(child: _statusLine(theme)),
+              const SizedBox(width: Insets.md),
+              _modeToggle(theme, compact: false),
+              const SizedBox(width: Insets.sm),
               IconButton(
                 tooltip: 'History',
                 onPressed: _openHistory,
@@ -853,292 +1361,355 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        Expanded(child: _buildBody(theme)),
+        Divider(
+          height: 1,
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+        Expanded(child: _workspaceBody(theme, padded: false)),
+        _chatDock(theme),
       ],
     );
   }
 
-  Widget _buildStatus(ThemeData theme) {
-    final pieces = <String>[];
-    final model = _model;
-    if (model != null) pieces.add(model.label);
-    if (_generating && _watch != null) {
-      pieces.add('${(_watch!.elapsedMilliseconds / 1000).toStringAsFixed(1)}s');
-    } else {
-      final usage = _completed?.usage ?? _typedUsage;
-      if (usage?.totalTokens != null) {
-        pieces.add('${usage!.totalTokens} tokens');
-      }
-      if (_completed?.cancelled ?? false) pieces.add('stopped');
-      final done =
-          !_generating &&
-          (_completed != null || _plan != null) &&
-          !(_completed?.cancelled ?? false);
-      if (done) pieces.add('done');
-    }
-    return Text(
-      pieces.isEmpty ? 'Ready' : pieces.join('  ·  '),
-      style: theme.textTheme.bodySmall!.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
+  /// The collapsible Ask Coach dock at the bottom of the desktop workspace.
+  Widget _chatDock(ThemeData theme) {
+    return Material(
+      color: theme.colorScheme.surfaceContainerLowest,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Divider(
+            height: 1,
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+          InkWell(
+            onTap: () => setState(() => _chatOpen = !_chatOpen),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Insets.xl,
+                vertical: Insets.md,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.forum_outlined,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: Insets.sm),
+                  Text(
+                    'Ask Coach',
+                    style: theme.textTheme.titleSmall!.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: Insets.sm),
+                  if (_chatMessages.isNotEmpty)
+                    StatChip(
+                      label: '${_chatMessages.where((m) => m.fromUser).length}'
+                          ' questions',
+                    ),
+                  const Spacer(),
+                  if (_chatSending)
+                    Padding(
+                      padding: const EdgeInsets.only(right: Insets.sm),
+                      child: Text(
+                        'answering…',
+                        style: theme.textTheme.labelSmall!.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  Icon(
+                    _chatOpen ? Icons.expand_more : Icons.expand_less,
+                    size: 20,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_chatOpen)
+            SizedBox(
+              height: 300,
+              child: CoachChatPanel(
+                messages: _chatMessages,
+                sending: _chatSending,
+                activity: _chatActivity,
+                onSend: _sendChat,
+                onStop: _cancel,
+                onRebuildPlan: _rebuildFromNote,
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  Widget _buildBody(ThemeData theme) {
-    final error = _error;
-    if (error != null) {
-      return Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.error_outline,
-                color: theme.colorScheme.error,
-                size: 34,
-              ),
-              const SizedBox(height: 12),
-              Text('Generation failed', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Text(
-                error,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
+  Widget _statusLine(ThemeData theme) {
+    return ValueListenableBuilder<Duration>(
+      valueListenable: _elapsed,
+      builder: (context, elapsed, _) => ValueListenableBuilder<int>(
+        valueListenable: _receivedChars,
+        builder: (context, received, _) {
+          final pieces = <String>[];
+          final model = _model;
+          if (model != null) pieces.add(model.label);
+          if (_generating) {
+            pieces.add(
+              '${(elapsed.inMilliseconds / 1000).toStringAsFixed(1)}s',
+            );
+            if (_mode == PlanMode.typed && received > 0) {
+              pieces.add('$received chars');
+            }
+          } else {
+            final usage = _completed?.usage ?? _typedUsage;
+            if (usage?.totalTokens != null) {
+              pieces.add('${usage!.totalTokens} tokens');
+            }
+            final latency = _typedLatencyMs;
+            if (latency != null) {
+              pieces.add('${(latency / 1000).toStringAsFixed(1)}s');
+            }
+            if (_completed?.cancelled ?? false) pieces.add('stopped');
+            final done =
+                !_generating &&
+                (_completed != null || _plan != null) &&
+                !(_completed?.cancelled ?? false);
+            if (done) pieces.add('done');
+          }
+          return Text(
+            pieces.isEmpty ? 'Ready' : pieces.join('  ·  '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall!.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _modeToggle(ThemeData theme, {required bool compact}) {
+    return SegmentedButton<PlanMode>(
+      segments: [
+        for (final mode in PlanMode.values)
+          ButtonSegment(
+            value: mode,
+            icon: Icon(mode.icon, size: 16),
+            label: compact ? null : Text(mode.label),
+            tooltip: mode.label,
           ),
-        ),
-      );
-    }
-    if (_generating && _plan == null && _output.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 14),
-            Text(
-              'Drafting the plan…',
-              style: theme.textTheme.bodySmall!.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+      ],
+      selected: {_mode},
+      onSelectionChanged: _generating
+          ? null
+          : (selection) => setState(() => _mode = selection.first),
+      showSelectedIcon: false,
+      style: compact
+          ? _compactSegments(theme)
+          : ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              textStyle: WidgetStatePropertyAll(
+                theme.textTheme.bodySmall!.copyWith(fontSize: 11.5),
               ),
             ),
-          ],
-        ),
-      );
-    }
-    if (_output.isEmpty && _plan == null && !_generating) {
-      return _buildEmptyState(theme);
-    }
+    );
+  }
+
+  Widget _workspaceBody(ThemeData theme, {required bool padded}) {
+    final body = ValueListenableBuilder<String>(
+      valueListenable: _streamText,
+      builder: (context, streamText, _) {
+        final error = _error;
+        if (error != null) {
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Padding(
+                padding: const EdgeInsets.all(Insets.xl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: theme.colorScheme.error,
+                      size: 34,
+                    ),
+                    const SizedBox(height: Insets.md),
+                    Text(
+                      'Generation failed',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: Insets.sm),
+                    Text(
+                      error,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        final plan = _plan;
+        if (plan != null) {
+          return _scrollable(
+            theme,
+            padded: padded,
+            child: PlanView(
+              plan: plan,
+              targets: _targetsApplied ? _targets : null,
+            ),
+          );
+        }
+        if (streamText.isNotEmpty) {
+          return _scrollable(
+            theme,
+            padded: padded,
+            child: PlanBody(text: streamText, streaming: _generating),
+          );
+        }
+        if (_generating) {
+          return _mode == PlanMode.typed
+              ? _draftingPanel(theme)
+              : _spinnerPanel(theme);
+        }
+        return _emptyState(theme);
+      },
+    );
+    return body;
+  }
+
+  Widget _scrollable(
+    ThemeData theme, {
+    required bool padded,
+    required Widget child,
+  }) {
     return Scrollbar(
       controller: _scrollController,
       child: SingleChildScrollView(
         controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
-        child: _plan != null
-            ? PlanView(plan: _plan!)
-            : PlanBody(text: _output.toString(), streaming: _generating),
+        padding: EdgeInsets.fromLTRB(
+          padded ? Insets.lg : Insets.xl,
+          Insets.lg,
+          padded ? Insets.lg : Insets.xl,
+          Insets.xxl,
+        ),
+        child: child,
       ),
     );
   }
 
-  Widget _buildEmptyState(ThemeData theme) {
-    final presets = <(String, String, PlanRequest)>[
-      (
-        'First workout',
-        'A beginner-friendly 3-day full-body week',
-        const PlanRequest(
-          goal: FitnessGoal.buildMuscle,
-          level: ExperienceLevel.beginner,
-          daysPerWeek: 3,
-          sessionMinutes: 45,
-          equipment: GymEquipment.fullGym,
-          notes: 'Brand-new to lifting.',
-        ),
-      ),
-      (
-        'Fat loss + food',
-        '4-day plan with a sample food day',
-        const PlanRequest(
-          goal: FitnessGoal.loseFat,
-          level: ExperienceLevel.intermediate,
-          daysPerWeek: 4,
-          sessionMinutes: 45,
-          equipment: GymEquipment.dumbbells,
-          notes: 'Desk job, wants to keep muscle.',
-        ),
-      ),
-      (
-        'Hotel room week',
-        'No equipment, 30 minutes, 4 days',
-        const PlanRequest(
-          goal: FitnessGoal.endurance,
-          level: ExperienceLevel.beginner,
-          daysPerWeek: 4,
-          sessionMinutes: 30,
-          equipment: GymEquipment.bodyweight,
-          notes: 'Travel week, only a floor and a chair.',
-        ),
-      ),
-    ];
+  Widget _draftingPanel(ThemeData theme) {
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 620),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Pick a template or set the dials on the left.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Plans stream straight from the OpenCode server, '
-              'token by token.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall!.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(Insets.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 46,
+                height: 46,
+                child: CircularProgressIndicator(strokeWidth: 3),
               ),
-            ),
-            const SizedBox(height: 20),
-            for (final (title, subtitle, request) in presets)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Material(
-                  color: theme.colorScheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(10),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(10),
-                    onTap: _generating || _model == null
-                        ? null
-                        : () => _generate(request: request),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(title, style: theme.textTheme.titleSmall),
-                                const SizedBox(height: 2),
-                                Text(
-                                  subtitle,
-                                  style: theme.textTheme.bodySmall!.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.play_arrow_rounded,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ],
+              const SizedBox(height: Insets.lg),
+              Text('Drafting your plan…', style: theme.textTheme.titleMedium),
+              const SizedBox(height: Insets.sm),
+              ValueListenableBuilder<Duration>(
+                valueListenable: _elapsed,
+                builder: (context, elapsed, _) =>
+                    ValueListenableBuilder<int>(
+                      valueListenable: _receivedChars,
+                      builder: (context, received, _) => Text(
+                        '${(elapsed.inMilliseconds / 1000).toStringAsFixed(1)}s'
+                        ' · $received characters received',
+                        style: theme.textTheme.bodyMedium!.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
+              ),
+              const SizedBox(height: Insets.sm),
+              Text(
+                'The model writes the whole JSON document before it is '
+                'parsed into the interactive plan.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall!.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
-}
 
-/// Lists saved plans with load and delete actions.
-class _HistoryDialog extends StatefulWidget {
-  const _HistoryDialog({required this.store, required this.onLoad});
-
-  final PlanStore store;
-  final void Function(SavedPlan plan) onLoad;
-
-  @override
-  State<_HistoryDialog> createState() => _HistoryDialogState();
-}
-
-class _HistoryDialogState extends State<_HistoryDialog> {
-  late Future<List<SavedPlan>> _plans = widget.store.list();
-
-  void _reload() => setState(() => _plans = widget.store.list());
-
-  Future<void> _delete(SavedPlan plan) async {
-    await widget.store.delete(plan.id);
-    _reload();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Text('Plan history'),
-      content: SizedBox(
-        width: 520,
-        height: 420,
-        child: FutureBuilder<List<SavedPlan>>(
-          future: _plans,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final plans = snapshot.data ?? const <SavedPlan>[];
-            if (plans.isEmpty) {
-              return Center(
-                child: Text(
-                  'No saved plans yet.\nGenerated plans are kept here '
-                  'automatically.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall!.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              );
-            }
-            return ListView.separated(
-              itemCount: plans.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final plan = plans[index];
-                final stamp = plan.createdAt
-                    .toLocal()
-                    .toString()
-                    .split('.')
-                    .first;
-                return ListTile(
-                  dense: true,
-                  title: Text(plan.title),
-                  subtitle: Text(
-                    '$stamp · ${plan.structured != null ? 'typed' : 'text'}',
-                  ),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    widget.onLoad(plan);
-                  },
-                  trailing: IconButton(
-                    tooltip: 'Delete',
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    onPressed: () => _delete(plan),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+  Widget _spinnerPanel(ThemeData theme) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const CircularProgressIndicator(),
+        const SizedBox(height: Insets.md),
+        Text(
+          'Drafting the plan…',
+          style: theme.textTheme.bodySmall!.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
       ],
+    ),
+  );
+
+  Widget _emptyState(ThemeData theme) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Padding(
+          padding: const EdgeInsets.all(Insets.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(Insets.lg),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.fitness_center,
+                  size: 30,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: Insets.lg),
+              Text(
+                'No workout yet',
+                style: theme.textTheme.titleMedium!.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: Insets.sm),
+              Text(
+                _isNarrow
+                    ? 'Pick a quick start or set the dials in Build, then '
+                          'tap Generate plan.'
+                    : 'Pick a template or set the dials on the left.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall!.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
