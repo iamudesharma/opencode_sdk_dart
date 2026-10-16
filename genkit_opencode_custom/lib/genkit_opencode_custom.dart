@@ -33,3 +33,4 @@ export 'src/dialect.dart';
 export 'src/opencode_plugin.dart';
 export 'src/openai_plugin.dart';
 export 'src/options.dart';
+export 'src/tools.dart';

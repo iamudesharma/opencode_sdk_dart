@@ -9,6 +9,13 @@ import 'package:test/test.dart';
 
 import 'support/fake_opencode_host.dart';
 
+part 'opencode_plugin_test.g.dart';
+
+@Schema()
+abstract class $Answer {
+  String get answer;
+}
+
 void main() {
   group('registration', () {
     test('constructs offline and registers nothing eagerly', () async {
@@ -243,6 +250,130 @@ void main() {
       );
       expect(result.finishReason, FinishReason.failed);
       expect(result.error!.status, StatusCode.notFound.wireName);
+    });
+
+    test('structured output injects schema instructions and parses JSON', () async {
+      host.generateText = '{"answer": "42"}';
+
+      final result = await ai.generate<Answer, OpenCodeModelOptions>(
+        model: openCode.model('kimi-k2.6'),
+        prompt: 'What is the answer?',
+        outputSchema: Answer.$schema,
+      );
+
+      expect(result.output?.answer, '42');
+
+      final generate = host.requests.firstWhere(
+        (r) => r.url.path == '/api/experimental/generate',
+      );
+      final prompt =
+          host.bodies[host.requests.indexOf(generate)]['prompt'] as String;
+      expect(prompt, contains('Output should be in JSON format'));
+      expect(prompt, contains('"answer"'));
+    });
+
+    test('forwards media parts as session prompt attachments', () async {
+      host.assistantMessageText = 'I see a cat.';
+
+      final result = await ai.generate<String, OpenCodeModelOptions>(
+        model: openCode.model('kimi-k2.6'),
+        messages: [
+          Message(
+            role: Role.user,
+            content: [
+              TextPart(text: 'What is in this image?'),
+              MediaPart(
+                media: Media(
+                  contentType: 'image/png',
+                  url: 'data:image/png;base64,AAAA',
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      expect(result.text, 'I see a cat.');
+
+      // The request ran through a session (the stateless endpoint takes text
+      // only) and the attachment rode along on the prompt.
+      final prompt = host.requests.firstWhere(
+        (r) => RegExp(r'^/api/session/[^/]+/prompt$').hasMatch(r.url.path),
+      );
+      final body = host.bodies[host.requests.indexOf(prompt)];
+      expect(body['files'], [
+        {'uri': 'data:image/png;base64,AAAA'},
+      ]);
+      expect(host.removedSessions, ['ses_fake1']);
+    });
+
+    test('reuses a server session when sessionID is set', () async {
+      host.eventFrames = [FakeOpenCodeHost.executionSucceeded('ses_reuse')];
+      host.assistantMessageText = 'continued';
+
+      final result = await ai.generate<String, OpenCodeModelOptions>(
+        model: openCode.model('kimi-k2.6'),
+        prompt: 'Continue',
+        config: OpenCodeModelOptions(sessionID: 'ses_reuse'),
+      );
+
+      expect(result.text, 'continued');
+
+      // No ephemeral session was created, and none was deleted.
+      expect(
+        host.requests.where(
+          (r) => r.url.path == '/api/session' && r.method == 'POST',
+        ),
+        isEmpty,
+      );
+      expect(host.removedSessions, isEmpty);
+
+      // The requested model was switched on the reused session.
+      final switchModel = host.requests.firstWhere(
+        (r) => r.url.path == '/api/session/ses_reuse/model',
+      );
+      final body = host.bodies[host.requests.indexOf(switchModel)];
+      expect(body['model'], {'id': 'kimi-k2.6', 'providerID': 'opencode-go'});
+    });
+
+    test('registers the websearch tool only when enabled', () async {
+      expect(await openCode(client: client).init(), isEmpty);
+
+      final plugin = openCode(client: client, webSearchTool: true);
+      final actions = await plugin.init();
+      expect(actions, hasLength(1));
+      expect(actions.single.name, 'opencode/websearch');
+    });
+
+    test('websearch tool resolves under its namespaced name', () async {
+      final ai = Genkit(
+        plugins: [openCode(client: client, webSearchTool: true)],
+      );
+      final tool = await ai.registry.lookupAction(
+        ActionType.tool,
+        'opencode/websearch',
+      );
+      expect(tool, isA<Tool<WebSearchToolInput, WebSearchToolOutput>>());
+    });
+
+    test('websearch tool queries the server', () async {
+      final plugin = openCode(client: client, webSearchTool: true);
+      final tool = (await plugin.init()).single
+          as Tool<WebSearchToolInput, WebSearchToolOutput>;
+
+      final result = await tool.call(WebSearchToolInput(query: 'dart'));
+
+      expect(result.output.provider, 'exa');
+      final hit = result.output.results.single;
+      expect(hit.title, 'Dart');
+      expect(hit.url, 'https://example.com/dart');
+      expect(hit.content, 'Dart is a language.');
+
+      final search = host.requests.firstWhere(
+        (r) => r.url.path == '/api/websearch',
+      );
+      final body = host.bodies[host.requests.indexOf(search)];
+      expect(body['query'], 'dart');
     });
   });
 }

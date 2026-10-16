@@ -89,6 +89,13 @@ abstract class $OpenCodeModelOptions {
   /// Agent id used for the session, for example `'build'` or `'plan'`.
   String? get agent;
 
+  /// Reuse an existing server session instead of creating an ephemeral one.
+  ///
+  /// The session is left in place afterwards, so the model keeps its
+  /// server-side memory across calls. The requested model (and [agent], when
+  /// set) are switched on the session before the prompt is sent.
+  String? get sessionID;
+
   /// Metadata attached to the prompt sent to the server.
   Map<String, dynamic>? get metadata;
 }

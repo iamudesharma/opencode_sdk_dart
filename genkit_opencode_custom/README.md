@@ -68,20 +68,83 @@ How the bridge maps Genkit onto the server:
 | Genkit | OpenCode server |
 | --- | --- |
 | model discovery (`list()`) | `GET /api/model` (real capabilities, enabled flag) |
-| unary generate | `POST /api/experimental/generate` with a resolved `ModelRef` |
-| streaming | ephemeral session + `POST /api/session/{id}/prompt` + the shared event stream (`session.text.delta`, `session.reasoning.delta`, `session.text.ended`/`reasoning.ended` reconciliation, `session.step.ended` usage, `session.execution.*` completion) — the session is deleted afterwards |
+| unary generate | `POST /api/experimental/generate` with a resolved `ModelRef` (text-only requests) |
+| streaming | session + `POST /api/session/{id}/prompt` + the shared event stream (`session.text.delta`, `session.reasoning.delta`, `session.text.ended`/`reasoning.ended` reconciliation, `session.step.ended` usage, `session.execution.*` completion) |
+| structured output | the output schema is appended to the prompt as JSON instructions; Genkit parses the response, so `outputSchema` works on any server model |
+| media inputs | media parts become prompt file attachments (`files`), so the request runs through a session |
+| persistent sessions | `OpenCodeModelOptions(sessionID: ...)` reuses a server session (model and agent are switched, the session is kept) instead of an ephemeral one that is deleted afterwards |
 | cancellation | Genkit's `CancellationToken` bridged to the SDK's, tearing down requests |
 | sampling parameters | the server's own model configuration |
 
+Bridge features in code:
+
+```dart
+// Structured output: typed results from any server model.
+final review = await ai.generate<Review, OpenCodeModelOptions>(
+  model: openCode.model('kimi-k2.6'),
+  prompt: 'Review this training plan...',
+  outputSchema: Review.$schema,
+);
+print(review.output?.score);
+
+// Media: images and files ride along as prompt attachments.
+await ai.generate<String, OpenCodeModelOptions>(
+  model: openCode.model('kimi-k2.6'),
+  messages: [
+    Message(
+      role: Role.user,
+      content: [
+        TextPart(text: 'What is in this image?'),
+        MediaPart(media: Media(url: 'https://...', contentType: 'image/png')),
+      ],
+    ),
+  ],
+);
+
+// Persistent session: the server keeps the conversation between calls.
+final first = await ai.generate<String, OpenCodeModelOptions>(
+  model: openCode.model('kimi-k2.6'),
+  prompt: 'Remember the number 41.',
+  config: OpenCodeModelOptions(sessionID: session.id.value),
+);
+final second = await ai.generate<String, OpenCodeModelOptions>(
+  model: openCode.model('kimi-k2.6'),
+  prompt: 'Which number did I ask you to remember?',
+  config: OpenCodeModelOptions(sessionID: session.id.value),
+);
+// second.text == '41'
+```
+
+### The web search tool
+
+`openCode(webSearchTool: true)` registers `<name>/websearch`, a Genkit tool
+backed by the server's web search providers. Use it with tool-capable models
+from any plugin — the bridge's own models still reject Genkit tools:
+
+```dart
+final ai = Genkit(plugins: [openCode(webSearchTool: true), openAI()]);
+
+final result = await ai.generate<String, OpenAIChatOptions>(
+  model: openAI.model('gpt-4o'),
+  prompt: 'Search the web for the latest Genkit Dart release.',
+  toolNames: ['opencode/websearch'],
+);
+```
+
 Documented limitations of the bridge:
 
-- **Genkit tools are not routed through it.** The server's agent executes its
-  own tools, so requests carrying `toolNames` fail fast with `UNIMPLEMENTED`
-  and a pointer to `openAI()`.
+- **Genkit tools are not routed through the bridge's own models.** The
+  server's agent executes its own tools, so requests to an `openCode.model(...)`
+  carrying `toolNames` fail fast with `UNIMPLEMENTED` and a pointer to
+  `openAI()`. The `websearch` tool above is the exception: it is a Genkit tool
+  *provided by* the plugin for other models.
 - Conversations are rendered into the server's prompt format
   (`User:`/`Assistant:`/`Tool result:`); there is no message-array API.
 - Sampling options (`temperature`, ...) are not forwarded; use
   `OpenCodeModelOptions` to select a `variant` or `agent` instead.
+- Structured output is instruction-based, not native constrained generation:
+  a model that ignores the instructions returns unparseable JSON and
+  `response.output` is null.
 
 The event stream is treated as best-effort. The shared SSE connection is
 live-only and can end mid-turn (reconnects, slow-consumer overflow, server

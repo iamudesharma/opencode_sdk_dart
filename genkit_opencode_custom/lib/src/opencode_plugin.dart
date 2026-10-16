@@ -11,6 +11,7 @@ import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' as sdk;
 import 'errors.dart';
 import 'genkit_aliases.dart';
 import 'options.dart';
+import 'tools.dart';
 
 final _logger = Logger('genkit_opencode_custom');
 
@@ -38,6 +39,7 @@ final class OpenCodePluginHandle {
     Map<String, String>? headers,
     bool discover = true,
     bool listModels = true,
+    bool webSearchTool = false,
   }) {
     return OpenCodePlugin(
       name: name,
@@ -46,6 +48,7 @@ final class OpenCodePluginHandle {
       headers: headers,
       discover: discover,
       listModels: listModels,
+      webSearchTool: webSearchTool,
     );
   }
 
@@ -66,8 +69,18 @@ const OpenCodePluginHandle openCode = OpenCodePluginHandle();
 ///
 /// The plugin is a bridge, not a reimplementation: model discovery comes from
 /// the server's own catalog, and generation runs through the server (unary
-/// through the stateless generate endpoint, streaming through an ephemeral
-/// session plus the shared event stream).
+/// through the stateless generate endpoint, streaming through a session plus
+/// the shared event stream).
+///
+/// Supported on top of the bridge:
+/// * structured outputs — the output schema is appended to the prompt as JSON
+///   instructions and Genkit parses the response, so
+///   `ai.generate(outputSchema: ...)` works on any server model;
+/// * media inputs — images and files ride along as session prompt attachments;
+/// * persistent sessions — `OpenCodeModelOptions(sessionID: ...)` reuses a
+///   server session instead of an ephemeral one;
+/// * an opt-in `websearch` tool (`webSearchTool: true`) usable by models from
+///   any plugin.
 ///
 /// Limitations (documented, by design):
 /// * Genkit tools are not routed through this bridge — the server's agent
@@ -82,6 +95,7 @@ final class OpenCodePlugin extends GenkitPlugin {
     this.headers,
     this.discover = true,
     this.listModels = true,
+    this.webSearchTool = false,
   });
 
   @override
@@ -102,6 +116,13 @@ final class OpenCodePlugin extends GenkitPlugin {
 
   /// Whether [list] reports the server's model catalog.
   final bool listModels;
+
+  /// Whether [init] registers the `<name>/websearch` tool.
+  ///
+  /// Opt-in: the tool only works when the server has a web search provider
+  /// configured, and registering it eagerly could collide with a
+  /// caller-defined tool of the same name.
+  final bool webSearchTool;
 
   sdk.OpenCodeClient? _resolved;
   Future<sdk.OpenCodeClient>? _connecting;
@@ -161,9 +182,11 @@ final class OpenCodePlugin extends GenkitPlugin {
 
   // Plugin lifecycle --------------------------------------------------------
 
-  /// No eager work: the server connection is established on first use.
+  /// Registers the opt-in `websearch` tool; no server connection is made
+  /// until a tool call or a generation runs.
   @override
-  Future<List<AnyAction>> init() async => const <AnyAction>[];
+  Future<List<AnyAction>> init() async =>
+      [if (webSearchTool) _webSearchTool()];
 
   @override
   Future<List<AnyActionMetadata>> list() async {
@@ -205,9 +228,9 @@ final class OpenCodePlugin extends GenkitPlugin {
             'tools': false,
             'toolChoice': false,
             'media': model.capabilities.input.any((kind) => kind == 'image'),
-            'output': model.capabilities.output.contains('json')
-                ? const ['text', 'json']
-                : const ['text'],
+            // Structured output is simulated with schema instructions, so
+            // every model can be asked for JSON.
+            'output': const ['text', 'json'],
             'constrained': false,
           },
         },
@@ -233,6 +256,47 @@ final class OpenCodePlugin extends GenkitPlugin {
         },
       },
       fn: (request, ctx) => _generate(modelName, request, ctx),
+    );
+  }
+
+  /// The opt-in tool that runs web searches through the server.
+  ///
+  /// Named `<plugin name>/websearch`; Genkit presents the short name
+  /// (`websearch`) to models. It works with models from any plugin (for
+  /// example `openAI()`), since the bridge's own models reject Genkit tools —
+  /// the server's agent owns its tool loop.
+  Tool<WebSearchToolInput, WebSearchToolOutput> _webSearchTool() {
+    return Tool<WebSearchToolInput, WebSearchToolOutput>(
+      name: '$name/websearch',
+      description:
+          'Search the web through the "$name" OpenCode server and return the '
+          'top results.',
+      inputSchema: WebSearchToolInput.$schema,
+      outputSchema: WebSearchToolOutput.$schema,
+      fn: (input, ctx) async {
+        final client = await _client();
+        final response = await client.websearch.query(
+          query: input.query,
+          providerID: input.providerID == null
+              ? null
+              : sdk.WebSearchID(input.providerID!),
+          options: sdk.RequestOptions(cancelToken: _bridgeCancel(ctx.cancel)),
+        );
+        final data = response.data;
+        return ToolResult.response(
+          WebSearchToolOutput(
+            provider: data.providerID.value,
+            results: [
+              for (final result in data.results)
+                WebSearchToolResult(
+                  title: result.title ?? result.url,
+                  url: result.url,
+                  content: result.content,
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -273,16 +337,25 @@ final class OpenCodePlugin extends GenkitPlugin {
       providerID: info.providerID,
       variant: options.variant,
     );
-    final prompt = _renderPrompt(request);
+    final prompt = _withOutputInstructions(
+      _renderPrompt(request),
+      request.output?.schema,
+    );
+    final attachments = _attachments(request);
 
     try {
-      if (ctx.streamingRequested) {
-        return await _generateStreaming(
+      // Streaming, media, and reused sessions all run through a session: the
+      // stateless generate endpoint takes text only.
+      if (ctx.streamingRequested ||
+          options.sessionID != null ||
+          attachments.isNotEmpty) {
+        return await _generateViaSession(
           info: info,
           modelRef: modelRef,
           prompt: prompt,
           options: options,
           modelName: modelName,
+          attachments: attachments,
           ctx: ctx,
           started: started,
         );
@@ -326,19 +399,50 @@ final class OpenCodePlugin extends GenkitPlugin {
     );
   }
 
-  Future<ModelResponse> _generateStreaming({
+  Future<ModelResponse> _generateViaSession({
     required sdk.ModelInfo info,
     required sdk.ModelRef modelRef,
     required String prompt,
     required OpenCodeModelOptions options,
     required String modelName,
+    required List<sdk.PromptInputFileAttachment> attachments,
     required ActionFnArg<ModelResponseChunk, ModelRequest, void> ctx,
     required DateTime started,
   }) async {
     final client = await _client();
     final cancel = _bridgeCancel(ctx.cancel);
+    final requestOptions = sdk.RequestOptions(cancelToken: cancel);
 
-    sdk.SessionInfo? session;
+    sdk.SessionInfo? createdSession;
+    final sdk.SessionID sessionID;
+    final reuseID = options.sessionID;
+    if (reuseID != null) {
+      // Reuse the server session the caller named: switch it to the model
+      // (and agent) this request asked for, and leave it in place.
+      sessionID = sdk.SessionID(reuseID);
+      await client.session.switchModel(
+        sessionID: sessionID,
+        model: modelRef,
+        options: requestOptions,
+      );
+      if (options.agent != null) {
+        await client.session.switchAgent(
+          sessionID: sessionID,
+          agent: sdk.AgentID(options.agent!),
+          options: requestOptions,
+        );
+      }
+    } else {
+      final created = await client.session.create(
+        title: 'genkit generate',
+        model: modelRef,
+        agent: options.agent == null ? null : sdk.AgentID(options.agent!),
+        options: requestOptions,
+      );
+      createdSession = created;
+      sessionID = created.id;
+    }
+
     StreamSubscription<sdk.OpenCodeEvent>? subscription;
     final done = Completer<void>();
     final text = StringBuffer();
@@ -346,13 +450,6 @@ final class OpenCodePlugin extends GenkitPlugin {
     GenerationUsage? usage;
 
     try {
-      session = await client.session.create(
-        title: 'genkit generate',
-        model: modelRef,
-        agent: options.agent == null ? null : sdk.AgentID(options.agent!),
-        options: sdk.RequestOptions(cancelToken: cancel),
-      );
-      final sessionID = session.id;
 
       subscription = client.multiplexer
           .subscribe(
@@ -459,8 +556,9 @@ final class OpenCodePlugin extends GenkitPlugin {
       await client.session.prompt(
         sessionID: sessionID,
         text: prompt,
+        files: attachments.isEmpty ? null : attachments,
         metadata: options.metadata,
-        options: sdk.RequestOptions(cancelToken: cancel),
+        options: requestOptions,
       );
 
       // Complete on whichever comes first: the execution event or the
@@ -496,7 +594,7 @@ final class OpenCodePlugin extends GenkitPlugin {
       throw openCodeError(error, stackTrace: stackTrace);
     } finally {
       await subscription?.cancel();
-      final created = session;
+      final created = createdSession;
       if (created != null) {
         try {
           await client.session.remove(
@@ -665,6 +763,46 @@ final class OpenCodePlugin extends GenkitPlugin {
       }
     }
     return buffer.toString().trim();
+  }
+
+  /// Appends JSON-schema instructions when Genkit asked for structured output.
+  ///
+  /// The bridge has no native `response_format` — the server takes a prompt —
+  /// so the schema travels as instructions and Genkit parses the response.
+  /// The text matches Genkit core's `jsonSchemaInstructions`, so a model reads
+  /// the same instructions the built-in `simulateConstrainedGeneration`
+  /// middleware would have appended; when that middleware is in use it clears
+  /// `output.schema`, so nothing is duplicated.
+  static String _withOutputInstructions(
+    String prompt,
+    Map<String, dynamic>? schema,
+  ) {
+    if (schema == null) return prompt;
+    final rendered = const JsonEncoder.withIndent('  ').convert(schema);
+    return '$prompt\n\nOutput should be in JSON format and conform to the '
+        'following schema:\n\n```\n$rendered\n```\n';
+  }
+
+  /// File attachments for the server prompt, collected from media parts.
+  ///
+  /// `file://` URLs are sent as local paths; everything else (`http(s)`,
+  /// `data:`) goes through verbatim.
+  static List<sdk.PromptInputFileAttachment> _attachments(
+    ModelRequest request,
+  ) {
+    final result = <sdk.PromptInputFileAttachment>[];
+    for (final message in request.messages) {
+      for (final part in message.content) {
+        final media = part.media;
+        if (media == null) continue;
+        var uri = media.url;
+        if (uri.startsWith('file://')) {
+          uri = Uri.parse(uri).toFilePath();
+        }
+        result.add(sdk.PromptInputFileAttachment(uri: uri));
+      }
+    }
+    return result;
   }
 
   static sdk.CancellationToken? _bridgeCancel(CancellationToken? cancel) {

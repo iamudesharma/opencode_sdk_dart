@@ -129,11 +129,14 @@ final class FakeOpenCodeHost {
         },
       });
     }
-    if (method == 'POST' && path == '/api/session/$sessionID/prompt') {
+    final promptMatch =
+        RegExp(r'^/api/session/([^/]+)/prompt$').firstMatch(path);
+    if (method == 'POST' && promptMatch != null) {
+      final sid = promptMatch[1]!;
       return _json(200, {
         'data': {
           'id': 'msg_1',
-          'sessionID': sessionID,
+          'sessionID': sid,
           'time': {'created': 1},
           'type': 'user',
           'payload': {'text': 'prompt'},
@@ -141,15 +144,22 @@ final class FakeOpenCodeHost {
         },
       });
     }
-    if (method == 'DELETE' && path == '/api/session/$sessionID') {
-      removedSessions.add(sessionID);
+    final deleteMatch = RegExp(r'^/api/session/([^/]+)$').firstMatch(path);
+    if (method == 'DELETE' && deleteMatch != null) {
+      removedSessions.add(deleteMatch[1]!);
       return http.StreamedResponse(const Stream<List<int>>.empty(), 204);
     }
     if (method == 'POST' &&
-        path == '/api/experimental/session/$sessionID/wait') {
+        RegExp(r'^/api/session/[^/]+/(model|agent)$').hasMatch(path)) {
       return http.StreamedResponse(const Stream<List<int>>.empty(), 204);
     }
-    if (method == 'GET' && path == '/api/session/$sessionID/message') {
+    if (method == 'POST' &&
+        RegExp(r'^/api/experimental/session/[^/]+/wait$').hasMatch(path)) {
+      return http.StreamedResponse(const Stream<List<int>>.empty(), 204);
+    }
+    final messageMatch =
+        RegExp(r'^/api/session/([^/]+)/message$').firstMatch(path);
+    if (method == 'GET' && messageMatch != null) {
       final text = assistantMessageText;
       return _json(200, {
         'data': [
@@ -174,6 +184,30 @@ final class FakeOpenCodeHost {
             },
         ],
         'cursor': <String, Object?>{},
+      });
+    }
+    if (method == 'GET' && path == '/api/websearch/provider') {
+      return _json(200, {
+        'location': {'directory': '/tmp/project'},
+        'data': [
+          {'id': 'exa', 'name': 'Exa'},
+        ],
+      });
+    }
+    if (method == 'POST' && path == '/api/websearch') {
+      return _json(200, {
+        'location': {'directory': '/tmp/project'},
+        'data': {
+          'providerID': 'exa',
+          'results': [
+            {
+              'url': 'https://example.com/dart',
+              'title': 'Dart',
+              'content': 'Dart is a language.',
+              'time': <String, Object?>{},
+            },
+          ],
+        },
       });
     }
     return _json(404, {

@@ -12,6 +12,13 @@
   - streaming via ephemeral sessions plus the shared event stream, with
     `session.wait` polling and server-side reconciliation so a dropped event
     stream delays a turn instead of hanging it
+  - structured outputs: the output schema is appended to the prompt as JSON
+    instructions and Genkit parses the response
+  - media parts forwarded as session prompt attachments
+  - persistent sessions via `OpenCodeModelOptions(sessionID: ...)` (model and
+    agent switched, session kept)
+  - opt-in `websearch` tool (`webSearchTool: true`) backed by the server's web
+    search providers
   - cancellation bridged to the SDK's `CancellationToken`
 - `openAI()` companion handle for OpenAI and OpenAI-compatible Chat Completions
   endpoints:

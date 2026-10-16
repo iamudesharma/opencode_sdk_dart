@@ -388,9 +388,15 @@ base class OpenCodeModelOptions {
   OpenCodeModelOptions({
     String? variant,
     String? agent,
+    String? sessionID,
     Map<String, dynamic>? metadata,
   }) {
-    _json = {'variant': ?variant, 'agent': ?agent, 'metadata': ?metadata};
+    _json = {
+      'variant': ?variant,
+      'agent': ?agent,
+      'sessionID': ?sessionID,
+      'metadata': ?metadata,
+    };
   }
 
   late final Map<String, dynamic> _json;
@@ -426,6 +432,28 @@ base class OpenCodeModelOptions {
       _json.remove('agent');
     } else {
       _json['agent'] = value;
+    }
+  }
+
+  /// Reuse an existing server session instead of creating an ephemeral one.
+  ///
+  /// The session is left in place afterwards, so the model keeps its
+  /// server-side memory across calls. The requested model (and [agent], when
+  /// set) are switched on the session before the prompt is sent.
+  String? get sessionID {
+    return _json['sessionID'] as String?;
+  }
+
+  /// Reuse an existing server session instead of creating an ephemeral one.
+  ///
+  /// The session is left in place afterwards, so the model keeps its
+  /// server-side memory across calls. The requested model (and [agent], when
+  /// set) are switched on the session before the prompt is sent.
+  set sessionID(String? value) {
+    if (value == null) {
+      _json.remove('sessionID');
+    } else {
+      _json['sessionID'] = value;
     }
   }
 
@@ -471,6 +499,7 @@ base class _OpenCodeModelOptionsTypeFactory
       'properties': <String, Object?>{
         'variant': <String, Object?>{'type': 'string'},
         'agent': <String, Object?>{'type': 'string'},
+        'sessionID': <String, Object?>{'type': 'string'},
         'metadata': <String, Object?>{
           'type': 'object',
           'additionalProperties': <String, Object?>{},
