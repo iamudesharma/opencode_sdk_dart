@@ -1,6 +1,8 @@
 // Copyright 2026 The genkit_opencode_custom authors.
 // SPDX-License-Identifier: MIT
 
+import 'dart:convert';
+
 import 'package:genkit/genkit.dart';
 import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
 import 'package:schemantic/schemantic.dart';
@@ -71,6 +73,38 @@ void main() {
       final actions = await plugin.list();
       final names = actions.map((a) => a.name).toList();
       expect(names, contains('qwen3-32b'));
+    });
+
+    test('resolves models and embedders by kind', () {
+      final plugin = openAI(apiKey: 'test');
+      expect(
+        plugin.resolve(ActionType.model, 'gpt-4o'),
+        isA<Model<OpenAIChatOptions>>(),
+      );
+      expect(
+        plugin.resolve(ActionType.model, 'tts-1'),
+        isA<Model<OpenAISpeechOptions>>(),
+      );
+      expect(
+        plugin.resolve(ActionType.model, 'whisper-1'),
+        isA<Model<OpenAITranscriptionOptions>>(),
+      );
+      // Embedders resolve under their own action type.
+      expect(
+        plugin.resolve(ActionType.model, 'text-embedding-3-small'),
+        isNull,
+      );
+      expect(
+        plugin.resolve(ActionType.embedder, 'text-embedding-3-small'),
+        isA<Embedder<OpenAIEmbedderOptions>>(),
+      );
+    });
+
+    test('ships presets for common compatible hosts', () {
+      expect(OpenAICompatDialect.groq.defaultBaseUrl, contains('groq.com'));
+      expect(OpenAICompatDialect.together.apiKeyEnvVar, 'TOGETHER_API_KEY');
+      expect(OpenAICompatDialect.mistral.defaultNamespace, 'mistral');
+      expect(OpenAICompatDialect.lmStudio.apiKeyRequired, isFalse);
     });
   });
 
@@ -204,6 +238,179 @@ void main() {
       expect(result.output!.answer, '42');
       final format = host.lastBody['response_format'] as Map<String, dynamic>;
       expect(format['type'], 'json_schema');
+    });
+  });
+
+  group('embeddings', () {
+    test('embeds documents through Genkit', () async {
+      final host = FakeOpenAIHost();
+      final ai = Genkit(
+        plugins: [openAI(apiKey: 'test-key', httpClient: host.client)],
+      );
+
+      final embeddings = await ai.embed<OpenAIEmbedderOptions>(
+        embedder: openAI.embedder('text-embedding-3-small'),
+        documents: [
+          DocumentData(content: [TextPart(text: 'hello')]),
+          DocumentData(content: [TextPart(text: 'world')]),
+        ],
+        options: OpenAIEmbedderOptions(dimensions: 256),
+      );
+
+      expect(embeddings, hasLength(2));
+      expect(embeddings.first.embedding, [0.1, 0.2, 0.3]);
+      expect(embeddings.last.embedding, [0.2, 0.2, 0.3]);
+
+      final request = host.requests.single;
+      expect(request.url.path, '/v1/embeddings');
+      expect(host.lastBody['model'], 'text-embedding-3-small');
+      expect(host.lastBody['input'], ['hello', 'world']);
+      expect(host.lastBody['dimensions'], 256);
+    });
+
+    test('rejects documents without text before any request', () async {
+      final host = FakeOpenAIHost();
+      final ai = Genkit(
+        plugins: [openAI(apiKey: 'test-key', httpClient: host.client)],
+      );
+
+      await expectLater(
+        ai.embed<OpenAIEmbedderOptions>(
+          embedder: openAI.embedder('text-embedding-3-small'),
+          documents: [
+            DocumentData(
+              content: [
+                MediaPart(
+                  media: Media(
+                    contentType: 'image/png',
+                    url: 'data:image/png;base64,AAAA',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        throwsA(
+          isA<GenkitException>().having(
+            (error) => error.status,
+            'status',
+            StatusCode.invalidArgument,
+          ),
+        ),
+      );
+      expect(host.requests, isEmpty);
+    });
+
+    test('validates dimensions for curated models', () async {
+      final host = FakeOpenAIHost();
+      final ai = Genkit(
+        plugins: [openAI(apiKey: 'test-key', httpClient: host.client)],
+      );
+
+      await expectLater(
+        ai.embed<OpenAIEmbedderOptions>(
+          embedder: openAI.embedder('text-embedding-ada-002'),
+          document: DocumentData(content: [TextPart(text: 'hello')]),
+          options: OpenAIEmbedderOptions(dimensions: 256),
+        ),
+        throwsA(isA<GenkitException>()),
+      );
+      expect(host.requests, isEmpty);
+    });
+  });
+
+  group('speech', () {
+    test('synthesizes speech into a media part', () async {
+      final host = FakeOpenAIHost();
+      final ai = Genkit(
+        plugins: [openAI(apiKey: 'test-key', httpClient: host.client)],
+      );
+
+      final result = await ai.generate<String, OpenAISpeechOptions>(
+        model: openAI.speechModel('tts-1'),
+        prompt: 'Say hello.',
+        config: OpenAISpeechOptions(voice: 'coral', responseFormat: 'wav'),
+      );
+
+      expect(result.finishReason, FinishReason.stop);
+      final media = result.media;
+      expect(media!.contentType, 'audio/wav');
+      expect(media.url, 'data:audio/wav;base64,${base64Encode([1, 2, 3, 4])}');
+
+      expect(host.requests.single.url.path, '/v1/audio/speech');
+      expect(host.lastBody['model'], 'tts-1');
+      expect(host.lastBody['input'], 'Say hello.');
+      expect(host.lastBody['voice'], 'coral');
+      expect(host.lastBody['response_format'], 'wav');
+    });
+  });
+
+  group('transcription', () {
+    test('uploads audio and returns the transcript', () async {
+      final host = FakeOpenAIHost();
+      final ai = Genkit(
+        plugins: [openAI(apiKey: 'test-key', httpClient: host.client)],
+      );
+
+      final audioBytes = [1, 2, 3, 4];
+      final result = await ai.generate<String, OpenAITranscriptionOptions>(
+        model: openAI.transcriptionModel('whisper-1'),
+        messages: [
+          Message(
+            role: Role.user,
+            content: [
+              MediaPart(
+                media: Media(
+                  contentType: 'audio/mpeg',
+                  url: 'data:audio/mpeg;base64,${base64Encode(audioBytes)}',
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      expect(result.text, 'hello from audio');
+      final request = host.requests.single;
+      expect(request.url.path, '/v1/audio/transcriptions');
+      expect(
+        request.headers['content-type'],
+        startsWith('multipart/form-data'),
+      );
+      final raw = utf8.decode(host.rawBodies.single);
+      expect(raw, contains('name="file"'));
+      expect(raw, contains('filename="input.mp3"'));
+      expect(raw, contains('name="model"'));
+      expect(raw, contains('whisper-1'));
+      expect(raw, contains('name="response_format"'));
+    });
+
+    test('rejects audio that is not a data URL', () async {
+      final host = FakeOpenAIHost();
+      final ai = Genkit(
+        plugins: [openAI(apiKey: 'test-key', httpClient: host.client)],
+      );
+
+      final result = await ai.generate<String, OpenAITranscriptionOptions>(
+        model: openAI.transcriptionModel('whisper-1'),
+        messages: [
+          Message(
+            role: Role.user,
+            content: [
+              MediaPart(
+                media: Media(
+                  contentType: 'audio/mpeg',
+                  url: 'https://example.com/audio.mp3',
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      expect(result.finishReason, FinishReason.failed);
+      expect(result.error!.status, StatusCode.invalidArgument.wireName);
+      expect(host.requests, isEmpty);
     });
   });
 
@@ -364,6 +571,21 @@ void main() {
       final host = FakeOpenAIHost(statusCode: 500);
       final plugin = openAI(apiKey: 'test', httpClient: host.client);
       expect(await plugin.list(), isEmpty);
+    });
+
+    test('list classifies discovered models by kind', () async {
+      final host = FakeOpenAIHost(
+        models: ['gpt-4o', 'tts-1', 'whisper-1', 'text-embedding-3-small'],
+      );
+      final plugin = openAI(apiKey: 'test', httpClient: host.client);
+      final actions = await plugin.list();
+      final byName = {
+        for (final action in actions) action.name: action.actionType,
+      };
+      expect(byName['gpt-4o'], ActionType.model);
+      expect(byName['tts-1'], ActionType.model);
+      expect(byName['whisper-1'], ActionType.model);
+      expect(byName['text-embedding-3-small'], ActionType.embedder);
     });
   });
 }

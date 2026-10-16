@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -31,6 +32,9 @@ final class FakeOpenAIHost {
   /// Model ids returned by `GET /models`.
   List<String> models;
 
+  /// Text returned by the audio transcription/translation endpoints.
+  String transcriptText = 'hello from audio';
+
   /// When not 200, every request fails with this status and [errorBody].
   int statusCode;
   String? errorBody;
@@ -40,6 +44,11 @@ final class FakeOpenAIHost {
 
   final List<http.BaseRequest> requests = [];
   final List<Map<String, dynamic>> bodies = [];
+
+  /// The raw request payloads, for multipart requests that do not decode as
+  /// JSON.
+  final List<Uint8List> rawBodies = [];
+
   final Map<String, List<String>> query = {};
 
   http.Client get client => MockClient.streaming(_handle);
@@ -55,10 +64,14 @@ final class FakeOpenAIHost {
   ) async {
     final bodyBytes = await bodyStream.toBytes();
     requests.add(request);
+    rawBodies.add(bodyBytes);
     query[request.url.path] = request.url.queryParametersAll.entries
         .map((e) => '${e.key}=${e.value.join(',')}')
         .toList();
-    final body = bodyBytes.isEmpty
+    final isJson = (request.headers['content-type'] ?? '').contains(
+      'application/json',
+    );
+    final body = (bodyBytes.isEmpty || !isJson)
         ? <String, dynamic>{}
         : (jsonDecode(utf8.decode(bodyBytes)) as Map).cast<String, dynamic>();
     bodies.add(body);
@@ -84,6 +97,37 @@ final class FakeOpenAIHost {
         return _sse(streamFrames ?? _defaultStreamFrames);
       }
       return _json(200, jsonEncode(unaryResponse ?? _defaultUnaryResponse));
+    }
+    if (path.endsWith('/embeddings')) {
+      final input = body['input'];
+      final count = input is List ? input.length : 0;
+      return _json(
+        200,
+        jsonEncode({
+          'object': 'list',
+          'model': body['model'] ?? 'text-embedding-3-small',
+          'data': [
+            for (var i = 0; i < count; i++)
+              {
+                'object': 'embedding',
+                'index': i,
+                'embedding': [0.1 * (i + 1), 0.2, 0.3],
+              },
+          ],
+          'usage': {'prompt_tokens': count, 'total_tokens': count},
+        }),
+      );
+    }
+    if (path.endsWith('/audio/speech')) {
+      return http.StreamedResponse(
+        Stream<List<int>>.value(const [1, 2, 3, 4]),
+        200,
+        headers: {'content-type': 'audio/mpeg'},
+      );
+    }
+    if (path.endsWith('/audio/transcriptions') ||
+        path.endsWith('/audio/translations')) {
+      return _json(200, jsonEncode({'text': transcriptText}));
     }
     return _json(404, '{"error": {"message": "no route for $path"}}');
   }

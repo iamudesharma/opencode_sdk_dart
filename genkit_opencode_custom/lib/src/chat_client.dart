@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:genkit/plugin.dart';
 import 'package:http/http.dart' as http;
@@ -65,6 +66,81 @@ final class OpenAIChatClient {
     Map<String, dynamic> body, {
     CancellationToken? cancel,
   }) async {
+    final response = await _send(
+      _jsonRequest('chat/completions', body),
+      cancel: cancel,
+    );
+    final text = await response.stream.bytesToString();
+    return _decodeJsonObject(text, what: 'Chat completion');
+  }
+
+  /// Sends an embeddings request and returns the decoded JSON body.
+  Future<Map<String, dynamic>> createEmbedding(
+    Map<String, dynamic> body, {
+    CancellationToken? cancel,
+  }) async {
+    final response = await _send(
+      _jsonRequest('embeddings', body),
+      cancel: cancel,
+    );
+    final text = await response.stream.bytesToString();
+    return _decodeJsonObject(text, what: 'Embeddings');
+  }
+
+  /// Sends a text-to-speech request and returns the audio bytes.
+  Future<Uint8List> createSpeech(
+    Map<String, dynamic> body, {
+    CancellationToken? cancel,
+  }) async {
+    final response = await _send(
+      _jsonRequest('audio/speech', body),
+      cancel: cancel,
+    );
+    return response.stream.toBytes();
+  }
+
+  /// Sends a multipart transcription (or translation) request and returns the
+  /// response body as text; the caller decodes it per the requested format.
+  Future<String> createTranscription({
+    required String endpoint,
+    required Uint8List bytes,
+    required String filename,
+    required Map<String, String> fields,
+    Map<String, List<String>> repeatedFields = const {},
+    CancellationToken? cancel,
+  }) async {
+    final request = http.MultipartRequest('POST', baseUrl.resolve(endpoint))
+      ..headers.addAll(headers())
+      ..files.add(
+        http.MultipartFile.fromBytes('file', bytes, filename: filename),
+      )
+      ..fields.addAll(fields);
+    // `fields` cannot hold duplicate keys, but the API expects array
+    // parameters as repeated fields.
+    repeatedFields.forEach((name, values) {
+      for (final value in values) {
+        request.files.add(http.MultipartFile.fromString(name, value));
+      }
+    });
+    final response = await _send(request, cancel: cancel);
+    return response.stream.bytesToString();
+  }
+
+  /// A JSON `POST` request to [path] under the base URL.
+  http.Request _jsonRequest(String path, Map<String, dynamic> body) =>
+      http.Request('POST', baseUrl.resolve(path))
+        ..headers.addAll(headers())
+        ..headers['content-type'] = 'application/json'
+        ..headers['accept'] = 'application/json'
+        ..body = jsonEncode(body);
+
+  /// Sends [request] with the cancellation pattern shared by every endpoint:
+  /// a cancelled request gets a dedicated client that is closed to tear the
+  /// connection down immediately.
+  Future<http.StreamedResponse> _send(
+    http.BaseRequest request, {
+    CancellationToken? cancel,
+  }) async {
     cancel?.throwIfCancelled();
     final dedicated = cancel != null;
     final client = dedicated ? clientFactory() : this.client;
@@ -72,35 +148,38 @@ final class OpenAIChatClient {
       if (dedicated) client.close();
     });
     try {
-      final request = http.Request('POST', _endpoint)
-        ..headers.addAll(headers())
-        ..headers['content-type'] = 'application/json'
-        ..headers['accept'] = 'application/json'
-        ..body = jsonEncode(body);
       final response = await client.send(request);
-      final text = await response.stream.bytesToString();
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        final text = await response.stream.bytesToString();
         throw chatCompletionError(
-          url: _endpoint,
+          url: request.url,
           statusCode: response.statusCode,
           body: text,
         );
       }
-      final decoded = jsonDecode(text);
-      if (decoded is! Map<String, dynamic>) {
-        throw GenkitException(
-          'Chat completion response was not a JSON object.',
-          status: StatusCode.internal,
-        );
-      }
-      return decoded;
+      return response;
     } on GenkitException {
       rethrow;
     } catch (error, stackTrace) {
-      throw chatTransportError(error, url: _endpoint, stackTrace: stackTrace);
+      throw chatTransportError(error, url: request.url, stackTrace: stackTrace);
     } finally {
       dispose?.call();
     }
+  }
+
+  /// Decodes [text] as a JSON object, naming [what] on failure.
+  static Map<String, dynamic> _decodeJsonObject(
+    String text, {
+    required String what,
+  }) {
+    final decoded = jsonDecode(text);
+    if (decoded is! Map<String, dynamic>) {
+      throw GenkitException(
+        '$what response was not a JSON object.',
+        status: StatusCode.internal,
+      );
+    }
+    return decoded;
   }
 
   /// Sends a streaming chat completion request and emits every decoded frame.

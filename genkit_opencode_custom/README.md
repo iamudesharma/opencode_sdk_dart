@@ -32,7 +32,7 @@ Future<void> main() async {
 | Handle | Backed by | Use it for |
 | --- | --- | --- |
 | `openCode()` | `opencode_sdk_dart`'s `OpenCodeClient` (local service discovery, model catalog, sessions, events) | models served by a local or remote OpenCode V2 server |
-| `openAI(...)` | a direct HTTP + SSE Chat Completions client that reuses `opencode_sdk_dart`'s SSE decoder and cancellation primitives | OpenAI and any OpenAI-compatible host, with Genkit-owned tool calling and structured outputs |
+| `openAI(...)` | a direct HTTP + SSE client that reuses `opencode_sdk_dart`'s SSE decoder and cancellation primitives | OpenAI and any OpenAI-compatible host: chat, embeddings, speech, and transcription, with Genkit-owned tool calling and structured outputs |
 
 Both handles are offline-first: constructing the plugin neither requires an API
 key nor performs network I/O, so `Genkit(plugins: [...])` always starts — even
@@ -199,7 +199,8 @@ Options and key resolution:
 ### Dialects
 
 `OpenAICompatDialect` describes how a host deviates from OpenAI's API. Presets:
-`openAI`, `deepSeek`, `xAI`, `openRouter`, `ollama`. Fields:
+`openAI`, `deepSeek`, `xAI`, `openRouter`, `ollama`, `groq`, `together`,
+`mistral`, `lmStudio`. Fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -289,6 +290,72 @@ messages automatically.
   to `json_object` plus a schema instruction appended to the conversation.
 - `jsonMode: true` sends `json_object` when Genkit asked for no output config.
 
+## Embeddings
+
+```dart
+final embeddings = await ai.embed<OpenAIEmbedderOptions>(
+  embedder: openAI.embedder('text-embedding-3-small'),
+  documents: [
+    DocumentData(content: [TextPart(text: 'Genkit is an AI framework.')]),
+  ],
+  options: OpenAIEmbedderOptions(dimensions: 256),
+);
+print(embeddings.first.embedding.length); // 256
+```
+
+- Any name resolves: `openAI.embedder('text-embedding-3-small')`, or
+  `openAI.embedder('nomic-embed-text', namespace: 'ollama')` for a local host.
+- Documents are flattened to text (parts joined with newlines); a document
+  without text is rejected before any request.
+- More than 2048 inputs are split across requests automatically.
+- `dimensions` is validated against the curated catalog
+  (`text-embedding-3-small/large`, `text-embedding-ada-002`) when the plugin
+  dials the dialect's own host; other hosts are left to their own limits.
+
+## Speech (text-to-speech)
+
+```dart
+final result = await ai.generate<String, OpenAISpeechOptions>(
+  model: openAI.speechModel('tts-1'),
+  prompt: 'Welcome to the gym.',
+  config: OpenAISpeechOptions(voice: 'coral', responseFormat: 'mp3'),
+);
+final audio = result.media!; // MediaPart: data:audio/mpeg;base64,...
+```
+
+`voice` is free-form (hosts add voices without warning), `instructions` is
+honored by `gpt-4o-mini-tts`, `speed` is bounded to 0.25-4.0, and
+`responseFormat` picks the container (`mp3`, `opus`, `aac`, `flac`, `wav`,
+`pcm`).
+
+## Transcription (speech-to-text)
+
+```dart
+final result = await ai.generate<String, OpenAITranscriptionOptions>(
+  model: openAI.transcriptionModel('whisper-1'),
+  messages: [
+    Message(
+      role: Role.user,
+      content: [
+        MediaPart(
+          media: Media(
+            contentType: 'audio/mpeg',
+            url: 'data:audio/mpeg;base64,${base64Encode(bytes)}',
+          ),
+        ),
+      ],
+    ),
+  ],
+  config: OpenAITranscriptionOptions(language: 'en'),
+);
+print(result.text); // the transcript
+```
+
+- Audio must be a base64 `data:` URL; the MIME type picks the upload filename.
+- `responseFormat` supports `json`, `text`, `srt`, `verbose_json`, `vtt`;
+  `verbose_json` payloads are also available on `result.raw`.
+- `translate: true` (whisper only) routes to `/audio/translations`.
+
 ## OpenAI-compatible endpoints: compatibility notes
 
 1. **Model discovery** — not every host implements `GET /models`, and those
@@ -327,12 +394,13 @@ knowing:
 | Structured output | `strict: false` only | `strictSchema` with strict-mode schema rewriting |
 | Streaming usage | always `include_usage` | configurable per dialect and per request |
 | Constrained-generation simulation middleware | supported | not in scope; the `json_object` fallback appends a schema instruction instead |
-| Speech / transcription / embeddings | supported | not in scope (v1) |
+| Speech / transcription / embeddings | supported | supported via `speechModel`, `transcriptionModel`, and `embedder` |
 | Model catalog | large curated catalog | deliberately small pattern catalog; unknown names pass through |
 
-Both packages coexist: `genkit_openai` remains the right choice for speech,
-transcription, and embeddings; this package covers OpenCode-backed models,
-Chat Completions, structured output, and the OpenCode bridge.
+Both packages coexist: `genkit_openai` ships a large curated catalog and the
+constrained-generation middleware; this package adds public dialects,
+pre-flight capability checks, the OpenCode bridge, and speaks the same
+endpoints for chat, embeddings, speech, and transcription.
 
 ## Development
 

@@ -27,9 +27,11 @@
 /// ```
 library;
 
+export 'src/audio.dart';
 export 'src/capabilities.dart';
 export 'src/catalog.dart';
 export 'src/dialect.dart';
+export 'src/embedders.dart';
 export 'src/opencode_plugin.dart';
 export 'src/openai_plugin.dart';
 export 'src/options.dart';

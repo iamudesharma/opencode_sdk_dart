@@ -92,4 +92,45 @@ final class OpenAICompatDialect {
     includeUsageInStream: false,
     supportsReasoningEffort: false,
   );
+
+  /// Groq.
+  static const OpenAICompatDialect groq = OpenAICompatDialect(
+    defaultNamespace: 'groq',
+    defaultBaseUrl: 'https://api.groq.com/openai/v1',
+    apiKeyEnvVar: 'GROQ_API_KEY',
+    supportsJsonSchema: false,
+    supportsReasoningEffort: false,
+  );
+
+  /// Together AI.
+  static const OpenAICompatDialect together = OpenAICompatDialect(
+    defaultNamespace: 'together',
+    defaultBaseUrl: 'https://api.together.xyz/v1',
+    apiKeyEnvVar: 'TOGETHER_API_KEY',
+    useLegacyMaxTokens: true,
+    supportsJsonSchema: false,
+    supportsReasoningEffort: false,
+  );
+
+  /// Mistral.
+  static const OpenAICompatDialect mistral = OpenAICompatDialect(
+    defaultNamespace: 'mistral',
+    defaultBaseUrl: 'https://api.mistral.ai/v1',
+    apiKeyEnvVar: 'MISTRAL_API_KEY',
+    useLegacyMaxTokens: true,
+    supportsJsonSchema: false,
+    supportsReasoningEffort: false,
+  );
+
+  /// A local LM Studio server's OpenAI-compatible endpoint.
+  static const OpenAICompatDialect lmStudio = OpenAICompatDialect(
+    defaultNamespace: 'lmstudio',
+    defaultBaseUrl: 'http://localhost:1234/v1',
+    apiKeyEnvVar: 'LMSTUDIO_API_KEY',
+    apiKeyRequired: false,
+    useLegacyMaxTokens: true,
+    includeUsageInStream: false,
+    supportsJsonSchema: false,
+    supportsReasoningEffort: false,
+  );
 }

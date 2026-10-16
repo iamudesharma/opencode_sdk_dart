@@ -20,15 +20,21 @@
   - opt-in `websearch` tool (`webSearchTool: true`) backed by the server's web
     search providers
   - cancellation bridged to the SDK's `CancellationToken`
-- `openAI()` companion handle for OpenAI and OpenAI-compatible Chat Completions
-  endpoints:
+- `openAI()` companion handle for OpenAI and OpenAI-compatible hosts:
   - offline-first registration, lazy API key resolution
     (`apiKeyProvider` → `apiKey` → environment variable)
   - public `OpenAICompatDialect` with `openAI`, `deepSeek`, `xAI`,
-    `openRouter` and `ollama` presets
+    `openRouter`, `ollama`, `groq`, `together`, `mistral` and `lmStudio`
+    presets
   - text generation, streaming, multi-turn conversations, tool calling, and
     structured outputs (with `strictSchema` support)
-  - best-effort `GET /models` discovery plus custom model definitions
+  - embeddings (`ai.embed`) with automatic batching and curated dimension
+    validation
+  - text-to-speech models (`speechModel`) returning audio `MediaPart`s
+  - speech-to-text models (`transcriptionModel`) with multipart uploads,
+    subtitle formats, and whisper translation
+  - best-effort `GET /models` discovery (classified by kind) plus custom model
+    definitions
   - pre-flight capability checks with actionable errors
   - `OpenAIChatOptions` configuration surface
 - Tests covering converters, capability checks, streaming assembly, plugin
