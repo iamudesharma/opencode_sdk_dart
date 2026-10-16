@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' as sdk;
 
+import '../theme.dart';
+
 /// Renders one agent-authored form (session.form.get) and collects an answer.
 ///
 /// The panel keeps its own draft state, hides fields whose `when` conditions
@@ -540,7 +542,8 @@ class _AgentFormPanelState extends State<AgentFormPanel> {
                 SelectableText(
                   field.url,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    fontFamily: 'AppMono',
+                    fontFamily: kMonoFontFamily,
+                    fontFamilyFallback: kMonoFontFallback,
                     fontSize: 11.5,
                   ),
                 ),

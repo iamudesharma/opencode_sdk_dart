@@ -7,6 +7,9 @@ import '../theme.dart';
 
 /// Message composer with Enter-to-send, Shift+Enter newline, and `@` file
 /// references backed by `filesystem.find`.
+///
+/// Reference candidates render in a floating card anchored above the input
+/// (via the root overlay) instead of pushing the transcript around.
 class CockpitComposer extends StatefulWidget {
   const CockpitComposer({
     super.key,
@@ -26,23 +29,39 @@ class CockpitComposer extends StatefulWidget {
 class _CockpitComposerState extends State<CockpitComposer> {
   var _hasText = false;
   var _mentionStart = -1;
+  var _highlighted = 0;
+
+  final LayerLink _mentionLink = LayerLink();
+  OverlayEntry? _mentionOverlay;
 
   @override
   void initState() {
     super.initState();
     widget.controller.composer.addListener(_onTextChanged);
+    widget.controller.addListener(_onControllerChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncMentionOverlay());
   }
 
   @override
   void dispose() {
     widget.controller.composer.removeListener(_onTextChanged);
+    widget.controller.removeListener(_onControllerChanged);
+    final overlay = _mentionOverlay;
+    _mentionOverlay = null;
+    if (overlay?.mounted ?? false) overlay!.remove();
     super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (!mounted) return;
+    _syncMentionOverlay();
   }
 
   void _onTextChanged() {
     final hasText = widget.controller.composer.text.trim().isNotEmpty;
     if (hasText != _hasText) setState(() => _hasText = hasText);
     _detectMention();
+    _syncMentionOverlay();
   }
 
   /// Tracks the `@token` under the caret and asks the controller to search.
@@ -69,6 +88,133 @@ class _CockpitComposerState extends State<CockpitComposer> {
     }
     _mentionStart = at;
     widget.controller.updateReferenceQuery(token);
+  }
+
+  /// Inserts or removes the floating candidate card to match the controller.
+  void _syncMentionOverlay() {
+    if (!mounted) return;
+    if (widget.controller.referenceCandidates.isEmpty) {
+      final overlay = _mentionOverlay;
+      _mentionOverlay = null;
+      if (overlay?.mounted ?? false) overlay!.remove();
+      return;
+    }
+    if (_mentionOverlay == null) {
+      _mentionOverlay = OverlayEntry(builder: _buildMentionCard);
+      Overlay.of(context, rootOverlay: true).insert(_mentionOverlay!);
+    } else {
+      _mentionOverlay!.markNeedsBuild();
+    }
+  }
+
+  Widget _buildMentionCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final candidates = widget.controller.referenceCandidates;
+    if (candidates.isEmpty) return const SizedBox.shrink();
+    if (_highlighted >= candidates.length) _highlighted = 0;
+    return CompositedTransformFollower(
+      link: _mentionLink,
+      showWhenUnlinked: false,
+      targetAnchor: Alignment.topLeft,
+      followerAnchor: Alignment.bottomLeft,
+      offset: const Offset(0, -8),
+      child: Align(
+        alignment: Alignment.bottomLeft,
+        child: Material(
+          elevation: 10,
+          shadowColor: Colors.black54,
+          color: theme.colorScheme.surfaceContainerHigh,
+          clipBehavior: Clip.antiAlias,
+          borderRadius: BorderRadius.circular(12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: 300,
+              maxWidth: 440,
+              maxHeight: 236,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.alternate_email_rounded,
+                        size: 13,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Reference files',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${candidates.length}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.only(bottom: 6),
+                    itemCount: candidates.length,
+                    itemBuilder: (context, index) {
+                      final candidate = candidates[index];
+                      final selected = index == _highlighted;
+                      return InkWell(
+                        onTap: () => _insertReference('${candidate.path}'),
+                        child: Container(
+                          color: selected
+                              ? theme.colorScheme.primaryContainer.withValues(
+                                  alpha: 0.4,
+                                )
+                              : null,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                candidate.type == FileSystemEntryType.directory
+                                    ? Icons.folder_outlined
+                                    : Icons.description_outlined,
+                                size: 14,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '${candidate.path}',
+                                  style: kMonoTextStyle.copyWith(
+                                    fontSize: 12.5,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _insertReference(String path) {
@@ -110,6 +256,7 @@ class _CockpitComposerState extends State<CockpitComposer> {
         final delta = event.logicalKey == LogicalKeyboardKey.arrowDown ? 1 : -1;
         _highlighted = (_highlighted + delta).clamp(0, candidates.length - 1);
       });
+      _mentionOverlay?.markNeedsBuild();
       return KeyEventResult.handled;
     }
     final isEnter =
@@ -127,8 +274,6 @@ class _CockpitComposerState extends State<CockpitComposer> {
     _submit();
     return KeyEventResult.handled;
   }
-
-  var _highlighted = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -149,100 +294,39 @@ class _CockpitComposerState extends State<CockpitComposer> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (candidates.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              constraints: const BoxConstraints(maxHeight: 200),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(
-                    alpha: 0.6,
-                  ),
-                ),
-              ),
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: candidates.length,
-                itemBuilder: (context, index) {
-                  final candidate = candidates[index];
-                  final selected = index == _highlighted;
-                  return InkWell(
-                    onTap: () => _insertReference('${candidate.path}'),
-                    child: Container(
-                      color: selected
-                          ? theme.colorScheme.primaryContainer.withValues(
-                              alpha: 0.4,
-                            )
-                          : null,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            candidate.type == FileSystemEntryType.directory
-                                ? Icons.folder_outlined
-                                : Icons.description_outlined,
-                            size: 14,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '${candidate.path}',
-                              style: const TextStyle(
-                                fontFamily: 'AppMono',
-                                fontSize: 12.5,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            'reference file',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.outline,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: Focus(
-                  onKeyEvent: _onKey,
-                  child: TextField(
-                    controller: controller.composer,
-                    focusNode: controller.composerFocus,
-                    enabled: widget.enabled,
-                    minLines: 1,
-                    maxLines: 8,
-                    autofocus: true,
-                    textInputAction: TextInputAction.newline,
-                    keyboardType: TextInputType.multiline,
-                    style: theme.textTheme.bodyMedium,
-                    decoration: InputDecoration(
-                      hintText:
-                          'Message OpenCode\u2026  '
-                          '(@ to reference files)',
-                      filled: true,
-                      fillColor: theme.colorScheme.surfaceContainerHighest
-                          .withValues(alpha: 0.5),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 11,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
+                child: CompositedTransformTarget(
+                  link: _mentionLink,
+                  child: Focus(
+                    onKeyEvent: _onKey,
+                    child: TextField(
+                      controller: controller.composer,
+                      focusNode: controller.composerFocus,
+                      enabled: widget.enabled,
+                      minLines: 1,
+                      maxLines: 8,
+                      autofocus: true,
+                      textInputAction: TextInputAction.newline,
+                      keyboardType: TextInputType.multiline,
+                      style: theme.textTheme.bodyMedium,
+                      decoration: InputDecoration(
+                        hintText:
+                            'Message OpenCode\u2026  '
+                            '(@ to reference files)',
+                        filled: true,
+                        fillColor: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.5),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 11,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                     ),
                   ),

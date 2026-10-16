@@ -16,9 +16,15 @@ import 'package:opencode_cockpit/src/shell.dart';
 import 'package:opencode_cockpit/src/terminal_session.dart';
 import 'package:opencode_cockpit/src/theme.dart';
 import 'package:opencode_cockpit/src/widgets/connections_dialog.dart';
+import 'package:opencode_cockpit/src/widgets/inspector.dart';
+import 'package:opencode_cockpit/src/widgets/session_explorer.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 /// Loads real macOS fonts so preview screenshots are readable.
+///
+/// The cockpit theme uses the platform default family (Roboto in the test
+/// engine) plus a Menlo / SF Mono / monospace stack, so the previews register
+/// real glyphs under exactly those names (⌘ included).
 Future<void> loadSystemFonts() async {
   Future<void> load(String family, List<String> paths) async {
     final loader = FontLoader(family);
@@ -33,13 +39,21 @@ Future<void> loadSystemFonts() async {
     if (loaded) await loader.load();
   }
 
-  await load('AppFont', [
+  Future<void> loadFirst(String family, List<String> candidates) async {
+    for (final path in candidates) {
+      if (!File(path).existsSync()) continue;
+      await load(family, [path]);
+      return;
+    }
+  }
+
+  await loadFirst('Roboto', const [
+    '/System/Library/Fonts/SFNS.ttf',
     '/System/Library/Fonts/Supplemental/Arial.ttf',
-    '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
   ]);
-  await load('AppMono', [
+  await loadFirst('Menlo', const [
+    '/System/Library/Fonts/SFNSMono.ttf',
     '/System/Library/Fonts/Supplemental/Courier New.ttf',
-    '/System/Library/Fonts/Supplemental/Courier New Bold.ttf',
   ]);
   final flutterRoot =
       Platform.environment['FLUTTER_ROOT'] ?? _flutterRootFromPath();
@@ -476,6 +490,48 @@ void main() {
       ..toggleTheme();
     await pumpCockpit(tester, controller);
     await capture(tester, 'cockpit_light');
+    controller.dispose();
+  });
+
+  testWidgets('cockpit narrow layout collapses into drawers', (tester) async {
+    final controller = seededController()..referenceCandidates = const [];
+    tester.view.physicalSize = const Size(880, 760);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: previewKey,
+        child: CockpitApp(controller: controller),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 80));
+
+    // Below the breakpoint the rail + explorer live in the drawer.
+    expect(find.byType(SessionExplorer), findsNothing);
+    expect(find.byTooltip('Menu'), findsOneWidget);
+    await capture(tester, 'cockpit_narrow');
+
+    await tester.tap(find.byTooltip('Menu'));
+    // The composer keeps a blinking cursor, so settle with bounded pumps.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(SessionExplorer), findsOneWidget);
+
+    // Picking a rail destination closes the drawer again.
+    await tester.tap(find.byTooltip('Git'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(SessionExplorer), findsNothing);
+
+    // The inspector opens as the end drawer on narrow layouts.
+    await tester.tap(find.byTooltip('Review changes in this session'));
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(InspectorPanel), findsOneWidget);
     controller.dispose();
   });
 }

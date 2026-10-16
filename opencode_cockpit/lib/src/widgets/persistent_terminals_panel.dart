@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
+import '../theme.dart';
+
 /// Explorer-style list of persistent terminals for the active session.
 class PersistentTerminalsPanel extends StatelessWidget {
   const PersistentTerminalsPanel({
@@ -188,7 +190,8 @@ class _TerminalTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      fontFamily: 'AppMono',
+                      fontFamily: kMonoFontFamily,
+                      fontFamilyFallback: kMonoFontFallback,
                       fontSize: 10.5,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -200,7 +203,8 @@ class _TerminalTile extends StatelessWidget {
             Text(
               'pid ${terminal.pid}',
               style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'AppMono',
+                fontFamily: kMonoFontFamily,
+                fontFamilyFallback: kMonoFontFallback,
                 color: theme.colorScheme.outline,
               ),
             ),

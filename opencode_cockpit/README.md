@@ -1,4 +1,4 @@
-# OpenCode Cockpit (macOS)
+# OpenCode Cockpit (macOS + Web)
 
 A Flutter desktop **workbench for OpenCode V2** — the CodeNomad-style cockpit,
 built entirely on [`opencode_sdk_dart`](../README.md). It exercises the SDK's
@@ -6,9 +6,13 @@ deeper capabilities: session trees, worktrees, session diffs, the filesystem
 API, VCS endpoints, git worktrees, plugin-event streaming, and **real PTY
 terminals over the SDK's WebSocket helpers**.
 
+It also builds for the **web** (a LAN host serves the app and proxies the API
+and WebSockets same-origin) and adapts to narrow screens with drawers.
+
 ![Sessions](test/previews/cockpit_sessions.png)
 ![Terminal](test/previews/cockpit_terminal.png)
 ![Git](test/previews/cockpit_git.png)
+![Narrow layout](test/previews/cockpit_narrow.png)
 
 ## Features
 
@@ -22,6 +26,10 @@ terminals over the SDK's WebSocket helpers**.
 - **Activity rail** — Sessions / Files / Git / Statistics, plus toggles for the
   terminal and the changes inspector.
 - **Command palette** (⌘K), light/dark themes (⌘⇧I), connection status bar.
+- **Responsive layout** — below ~1024 px the rail + explorer collapse into a
+  drawer opened from the top bar, the inspector becomes an end drawer, the
+  terminal stays a bottom panel, and the top bar condenses (menu, title,
+  project picker, key actions).
 
 **Conversation**
 
@@ -38,10 +46,14 @@ terminals over the SDK's WebSocket helpers**.
   links — submitted via `session.form.reply`.
 - **Export / import**: write a session transcript as pretty JSON
   (`session.exportSession`) or import one from disk (`session.importSession`).
+  Desktop uses path dialogs (`~/Downloads` suggestion); the web build
+  downloads a Blob and imports through the browser's file picker.
 - Agent and model switching from the header (`session.switchAgent` /
-  `switchModel`).
+  `switchModel`). The model picker is a **searchable dialog** over every
+  `providerID/modelID` with a checkmark on the current model.
 - Composer with Enter-to-send, Shift+Enter newline, interrupt, queue-while-busy,
-  and **`@` file references** backed by `filesystem.find`.
+  and **`@` file references** backed by `filesystem.find`; candidates render in
+  a floating card above the input.
 - Permission prompts inline (`permission.asked` → Reject / Allow once /
   Always allow via `permission.reply`).
 
@@ -86,6 +98,8 @@ terminals over the SDK's WebSocket helpers**.
 
 ## Run it
 
+Desktop:
+
 ```sh
 cd opencode_cockpit
 flutter pub get
@@ -99,17 +113,38 @@ flutter build macos --release
 open build/macos/Build/Products/Release/opencode_cockpit.app
 ```
 
+Web (also used for LAN/mobile access):
+
+```sh
+flutter run -d chrome                     # local development
+flutter build web --release --base-href /cockpit/
+```
+
+Serve `build/web` from any host that proxies `/api/*` and the event/PTY
+WebSockets to the OpenCode server. On the web the cockpit connects to
+`Uri.base.origin` (same-origin LAN host). To point any platform at an explicit
+server instead, pass a dart-define:
+
+```sh
+flutter run -d chrome --dart-define=OPENCODE_BASE_URL=http://192.168.1.20:4096
+```
+
 ## Tests
 
 ```sh
-flutter test                            # reducer, tree, references, previews
+flutter test                            # controller, widgets, previews
 flutter test tool/live_cockpit_check.dart  # live end-to-end (needs a server)
 ```
 
 - `test/cockpit_controller_test.dart` — event reducer, session tree filtering,
-  permissions, busy tracking, `@` reference insertion, theme toggle.
-- `test/ui_preview_test.dart` — renders eight screens with real macOS fonts and
-  writes them to `test/previews/`.
+  permissions, busy tracking, `@` reference insertion, theme toggle, and
+  notification coalescing.
+- `test/ui_preview_test.dart` — renders the screens with real macOS fonts and
+  writes them to `test/previews/` (including the narrow layout).
+- `test/model_picker_test.dart` — searchable model dialog: full catalog,
+  filtering, current-model checkmark, selection.
+- `test/markdown_lite_test.dart` — headings, lists, quotes, rules, and the
+  copy button of fenced code blocks.
 - `test/cockpit_integration_test.dart` — drives the controller against a
   mocked server: connect, inbox cancel/delivery, form reply payloads, older
   message pagination with dedupe, and export/import round trips.
@@ -141,17 +176,21 @@ lib/
   main.dart                       app entry, controller lifecycle
   src/
     app.dart                      MaterialApp + themes
-    shell.dart                    top bar, activity rail, layout, status bar
+    shell.dart                    top bar, activity rail, responsive layout,
+                                  status bar
     cockpit_controller.dart       connection, projects, sessions, panels,
                                   live event reducer, palette commands
     models.dart                   transcript view models + API decoding
+    session_transfer.dart         conditional export of the platform
+                                  export/import helper (io vs web)
     terminal_session.dart         PTY lifecycle + xterm binding
     services/persistent_terminal.dart
                                   persistent PTY lifecycle + framed input
     markdown_lite.dart            code-aware markdown renderer
-    theme.dart                    dark/light palettes
+    theme.dart                    dark/light palettes + mono font stack
     widgets/                      transcript, composer, explorers, panels,
-                                  diff view, terminal, palette, inspector
+                                  diff view, terminal, palette, inspector,
+                                  model picker
 ```
 
 The controller mirrors the reference client's event semantics (the same
@@ -166,4 +205,16 @@ stats, diffs).
 - PTY sessions are scoped to a location; the cockpit always passes the active
   project's directory to `pty.create`, `pty.update`, `pty.remove`, and the
   WebSocket handshake, and disposes them on exit.
-- `xterm` (MIT) provides the terminal emulation and rendering.
+- `xterm` (MIT) provides the terminal emulation and rendering; it compiles for
+  the web build, where the SDK opens the PTY socket through the browser's
+  WebSocket API (tickets in the URL, no custom headers).
+- Session export/import is platform-aware (`session_transfer_io.dart` /
+  `session_transfer_web.dart` behind `session_transfer.dart`): desktop writes
+  and reads files, the web downloads a Blob and reads through an
+  `<input type="file">` picker. `dart:io` never leaks into the shared widgets.
+- The theme uses the platform default family plus a Menlo / SF Mono /
+  monospace stack (`kMonoTextStyle`) for code, paths, and terminal chrome, so
+  ⌘ renders correctly on macOS and the web.
+- The controller coalesces listener updates to one per ~16 ms frame; streaming
+  transcripts scroll with `jumpTo` while the active message streams and with a
+  short animation otherwise.

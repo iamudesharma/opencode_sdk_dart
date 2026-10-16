@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 /// Asks for a destination path for `session.export`; null when cancelled.
 ///
 /// [sessionID] identifies the exported session for the caller; the dialog
@@ -110,7 +112,11 @@ class _TransferDialogState extends State<_TransferDialog> {
             TextField(
               controller: _path,
               autofocus: true,
-              style: const TextStyle(fontFamily: 'AppMono', fontSize: 12),
+              style: const TextStyle(
+                fontFamily: kMonoFontFamily,
+                fontFamilyFallback: kMonoFontFallback,
+                fontSize: 12,
+              ),
               decoration: const InputDecoration(
                 hintText: '/path/to/session.json',
               ),

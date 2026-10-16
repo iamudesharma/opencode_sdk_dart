@@ -4,6 +4,7 @@ import 'package:xterm/xterm.dart';
 import '../cockpit_controller.dart';
 import '../services/persistent_terminal.dart';
 import '../terminal_session.dart';
+import '../theme.dart';
 
 /// Bottom drawer that renders a live OpenCode PTY session.
 class TerminalPanel extends StatefulWidget {
@@ -87,7 +88,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                 Text(
                   persistent != null ? 'Persistent terminal' : 'Terminal',
                   style: const TextStyle(
-                    fontFamily: 'AppMono',
+                    fontFamily: kMonoFontFamily,
+                    fontFamilyFallback: kMonoFontFallback,
                     fontSize: 12,
                     color: Color(0xFFD8DBE6),
                   ),
@@ -112,7 +114,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   Text(
                     '${widget.controller.selectedPersistentID}',
                     style: const TextStyle(
-                      fontFamily: 'AppMono',
+                      fontFamily: kMonoFontFamily,
+                      fontFamilyFallback: kMonoFontFallback,
                       fontSize: 10.5,
                       color: Color(0xFF6B7280),
                     ),
@@ -122,7 +125,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   Text(
                     '${capturedSession!.ptyID}',
                     style: const TextStyle(
-                      fontFamily: 'AppMono',
+                      fontFamily: kMonoFontFamily,
+                      fontFamilyFallback: kMonoFontFallback,
                       fontSize: 10.5,
                       color: Color(0xFF6B7280),
                     ),
@@ -133,7 +137,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   Text(
                     'cursor ${persistent.cursor}',
                     style: const TextStyle(
-                      fontFamily: 'AppMono',
+                      fontFamily: kMonoFontFamily,
+                      fontFamilyFallback: kMonoFontFallback,
                       fontSize: 10.5,
                       color: Color(0xFF6B7280),
                     ),
@@ -153,7 +158,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                   Text(
                     'cursor ${capturedSession.cursor}',
                     style: const TextStyle(
-                      fontFamily: 'AppMono',
+                      fontFamily: kMonoFontFamily,
+                      fontFamilyFallback: kMonoFontFallback,
                       fontSize: 10.5,
                       color: Color(0xFF6B7280),
                     ),
@@ -197,7 +203,8 @@ class _TerminalPanelState extends State<TerminalPanel> {
                     autofocus: true,
                     theme: TerminalThemes.defaultTheme,
                     textStyle: const TerminalStyle(
-                      fontFamily: 'AppMono',
+                      fontFamily: kMonoFontFamily,
+                      fontFamilyFallback: kMonoFontFallback,
                       fontSize: 12.5,
                       height: 1.25,
                     ),

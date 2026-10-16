@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import '../cockpit_controller.dart';
+import '../theme.dart';
 
 /// Pending permission requests for the active session.
 class PermissionBanner extends StatelessWidget {
@@ -72,7 +73,8 @@ class PermissionBanner extends StatelessWidget {
                                     child: Text(
                                       resource,
                                       style: const TextStyle(
-                                        fontFamily: 'AppMono',
+                                        fontFamily: kMonoFontFamily,
+                                        fontFamilyFallback: kMonoFontFallback,
                                         fontSize: 11.5,
                                       ),
                                     ),

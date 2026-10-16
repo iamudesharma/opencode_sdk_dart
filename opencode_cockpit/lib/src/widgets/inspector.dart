@@ -71,7 +71,11 @@ class _InspectorHeader extends StatelessWidget {
               message: title,
               child: Text(
                 title,
-                style: const TextStyle(fontFamily: 'AppMono', fontSize: 12.5),
+                style: const TextStyle(
+                  fontFamily: kMonoFontFamily,
+                  fontFamilyFallback: kMonoFontFallback,
+                  fontSize: 12.5,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -164,7 +168,8 @@ class _FileView extends StatelessWidget {
                             Text(
                               '$line',
                               style: TextStyle(
-                                fontFamily: 'AppMono',
+                                fontFamily: kMonoFontFamily,
+                                fontFamilyFallback: kMonoFontFallback,
                                 fontSize: 11.8,
                                 height: 1.45,
                                 color: theme.colorScheme.outline,
@@ -179,7 +184,8 @@ class _FileView extends StatelessWidget {
                       child: SelectableText(
                         source,
                         style: TextStyle(
-                          fontFamily: 'AppMono',
+                          fontFamily: kMonoFontFamily,
+                          fontFamilyFallback: kMonoFontFallback,
                           fontSize: 11.8,
                           height: 1.45,
                           color: theme.codeForeground,
@@ -274,7 +280,8 @@ class _ChangesView extends StatelessWidget {
                     child: Text(
                       diff.file,
                       style: const TextStyle(
-                        fontFamily: 'AppMono',
+                        fontFamily: kMonoFontFamily,
+                        fontFamilyFallback: kMonoFontFallback,
                         fontSize: 12,
                       ),
                       overflow: TextOverflow.ellipsis,

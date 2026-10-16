@@ -555,7 +555,8 @@ class MonoBlock extends StatelessWidget {
             child: SelectableText(
               text,
               style: TextStyle(
-                fontFamily: 'AppMono',
+                fontFamily: kMonoFontFamily,
+                fontFamilyFallback: kMonoFontFallback,
                 fontSize: 12,
                 height: 1.45,
                 color: color ?? theme.codeForeground,

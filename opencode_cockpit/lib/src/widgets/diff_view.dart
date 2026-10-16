@@ -26,7 +26,8 @@ class DiffView extends StatelessWidget {
                   child: Text(
                     diff.file,
                     style: const TextStyle(
-                      fontFamily: 'AppMono',
+                      fontFamily: kMonoFontFamily,
+                      fontFamilyFallback: kMonoFontFallback,
                       fontSize: 12.5,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -100,7 +101,8 @@ class _DiffLine extends StatelessWidget {
       child: Text(
         line,
         style: TextStyle(
-          fontFamily: 'AppMono',
+          fontFamily: kMonoFontFamily,
+          fontFamilyFallback: kMonoFontFallback,
           fontSize: 11.8,
           height: 1.42,
           color: foreground,

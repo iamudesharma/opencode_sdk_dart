@@ -158,6 +158,32 @@ void main() {
     controller.toggleTheme();
     expect(controller.themeMode, ThemeMode.light);
   });
+
+  test('listener updates coalesce into a single notification', () async {
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    controller.handleEvent(
+      event('session.execution.started', {'sessionID': 'ses_1'}),
+    );
+    controller.handleEvent(
+      event('session.execution.succeeded', {'sessionID': 'ses_1'}),
+    );
+    expect(notifications, 0);
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(notifications, 1);
+  });
+
+  test('dispose flushes a pending notification', () {
+    final local = CockpitController()..connection = CockpitConnection.connected;
+    var notifications = 0;
+    local.addListener(() => notifications++);
+    local.handleEvent(
+      event('session.execution.started', {'sessionID': 'ses_1'}),
+    );
+    expect(notifications, 0);
+    local.dispose();
+    expect(notifications, 1);
+  });
 }
 
 SessionInfo _session(String id, {String? title}) => SessionInfo.fromJson({

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import 'models.dart';
 import 'services/persistent_terminal.dart';
+import 'session_transfer.dart';
 import 'terminal_session.dart';
 
 /// Connection lifecycle of the cockpit.
@@ -44,6 +44,8 @@ class CockpitController extends ChangeNotifier {
   Timer? _sessionsDebounce;
   Timer? _messagesDebounce;
   Timer? _fileSearchDebounce;
+  Timer? _notifyTimer;
+  bool _notifyPending = false;
   bool _disposed = false;
 
   // ---------------------------------------------------------------------------
@@ -81,16 +83,28 @@ class CockpitController extends ChangeNotifier {
     _notify();
     try {
       if (discover) {
-        final endpoint =
-            await OpenCodeService.discover() ?? await OpenCodeService.ensure();
-        url = endpoint.url;
-        headers = OpenCodeService.headers(endpoint);
+        // An explicit base URL wins everywhere; the web build otherwise talks
+        // to its own origin (a LAN host serves the app and proxies the API and
+        // WebSockets), while desktop discovers or starts the local service.
+        const configuredBase = String.fromEnvironment('OPENCODE_BASE_URL');
+        if (configuredBase.isNotEmpty) {
+          url = Uri.parse(configuredBase);
+        } else if (kIsWeb) {
+          url = Uri.parse(Uri.base.origin);
+        } else {
+          final endpoint =
+              await OpenCodeService.discover() ??
+              await OpenCodeService.ensure();
+          url = endpoint.url;
+          headers = OpenCodeService.headers(endpoint);
+        }
       }
       final client = OpenCodeClient(
         baseUrl: url!,
         headers: headers,
         clientFactory: httpClientFactory,
       );
+      client.transport.retry = const RetryPolicy();
       _client = client;
       baseUrl = client.transport.baseUrl;
       final info = await client.server.info();
@@ -262,8 +276,13 @@ class CockpitController extends ChangeNotifier {
 
   void showInspector(InspectorTab tab) {
     inspectorTab = tab;
+    inspectorShows++;
     _notify();
   }
+
+  /// Bumped on every [showInspector] call so the narrow shell can reopen its
+  /// inspector end drawer even when the tab did not change.
+  int inspectorShows = 0;
 
   void toggleTerminal() {
     terminalVisible = !terminalVisible;
@@ -795,18 +814,32 @@ class CockpitController extends ChangeNotifier {
     loadingGit = true;
     _notify();
     final location = activeLocation;
+    final projectID = activeProject?.id;
     try {
-      vcsInfo = (await client.vcs.get(location: location)).data;
-      gitChanges = (await client.vcs.status(location: location)).data;
-      gitDiffFiles = (await client.vcs.diff(
-        location: location,
-        mode: VcsMode.working,
-      )).data;
-      branches = (await client.vcs.branchList(location: location)).data;
-      final projectID = activeProject?.id;
-      if (projectID != null) {
-        worktrees = await client.worktree.list(projectID: ProjectID(projectID));
-      }
+      // The five requests are independent: fire them together and wait for
+      // all of them so one failure still reports through connectionError.
+      await Future.wait<void>([
+        client.vcs.get(location: location).then((response) {
+          vcsInfo = response.data;
+        }),
+        client.vcs.status(location: location).then((response) {
+          gitChanges = response.data;
+        }),
+        client.vcs.diff(location: location, mode: VcsMode.working).then((
+          response,
+        ) {
+          gitDiffFiles = response.data;
+        }),
+        client.vcs.branchList(location: location).then((response) {
+          branches = response.data;
+        }),
+        if (projectID != null)
+          client.worktree.list(projectID: ProjectID(projectID)).then((
+            response,
+          ) {
+            worktrees = response;
+          }),
+      ]);
     } on Object catch (error) {
       connectionError = describe(error);
     } finally {
@@ -1105,28 +1138,32 @@ class CockpitController extends ChangeNotifier {
   // Session transfer (export / import)
   // ---------------------------------------------------------------------------
 
-  /// Writes the active session transcript as pretty JSON to [path].
-  Future<String> exportActiveSessionTo(String path) async {
+  /// Exports the active session transcript as pretty JSON.
+  ///
+  /// Desktop writes to [path] and returns the written path; the web build
+  /// triggers a browser download and returns the file name. The parsing side
+  /// is shared through [importSessionFromJson].
+  Future<String> exportActiveSession({String? path}) async {
     final client = _client;
     final session = activeSession;
     if (client == null || session == null) {
       throw StateError('No active session to export');
     }
     final data = await client.session.exportSession(sessionID: session.id);
-    final file = File(path);
-    await file.parent.create(recursive: true);
-    await file.writeAsString(
-      const JsonEncoder.withIndent('  ').convert(data.toJson()),
+    final json = const JsonEncoder.withIndent('  ').convert(data.toJson());
+    return saveSessionJson(
+      path: path,
+      fileName: 'opencode-${session.id}.json',
+      json: json,
     );
-    return file.path;
   }
 
-  /// Reads an exported transcript from [path] and imports it as a new session.
-  Future<SessionInfo?> importSessionFrom(String path) async {
+  /// Parses an exported transcript [json] and imports it as a new session.
+  Future<SessionInfo?> importSessionFromJson(String json) async {
     final client = _client;
     if (client == null) return null;
     try {
-      final decoded = jsonDecode(await File(path).readAsString());
+      final decoded = jsonDecode(json);
       final data = SessionTransferData.fromJson(asJsonMap(decoded));
       final imported = await client.session.importSession(
         info: data.info,
@@ -1693,14 +1730,32 @@ class CockpitController extends ChangeNotifier {
     _notify();
   }
 
+  /// Coalesces listener updates to at most one per frame (~16 ms).
+  ///
+  /// Streaming events arrive in bursts; UI listeners only need the newest
+  /// state, so a pending notification is flushed by a short timer instead of
+  /// notifying synchronously for every event.
   void _notify() {
     if (_disposed) return;
+    _notifyPending = true;
+    _notifyTimer ??= Timer(const Duration(milliseconds: 16), _flushNotify);
+  }
+
+  void _flushNotify() {
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    if (_disposed || !_notifyPending) return;
+    _notifyPending = false;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _flushNotify();
     _disposed = true;
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    _notifyPending = false;
     final events = _events;
     _events = null;
     final client = _client;

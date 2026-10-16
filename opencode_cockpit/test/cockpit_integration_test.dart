@@ -297,12 +297,12 @@ void main() {
     final directory = Directory.systemTemp.createTempSync('cockpit-export');
     addTearDown(() => directory.deleteSync(recursive: true));
     final path = '${directory.path}/session.json';
-    final written = await controller.exportActiveSessionTo(path);
+    final written = await controller.exportActiveSession(path: path);
     final text = File(written).readAsStringSync();
     final decoded = asJsonMap(jsonDecode(text));
     expect(decoded['info'], isNotNull);
 
-    await controller.importSessionFrom(path);
+    await controller.importSessionFromJson(text);
     final imported = requests.lastWhere(
       (request) => request.url.path == '/api/experimental/session/import',
     );

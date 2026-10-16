@@ -1,5 +1,20 @@
 import 'package:flutter/material.dart';
 
+/// The monospace family used for code, paths, and terminal chrome.
+///
+/// Menlo ships with macOS; [kMonoFontFallback] covers SF Mono and the
+/// platform's generic monospace (also used on the web build).
+const String kMonoFontFamily = 'Menlo';
+
+/// Fallbacks for the monospace stack, tried in order.
+const List<String> kMonoFontFallback = <String>['SF Mono', 'monospace'];
+
+/// Shared monospace style; call `kMonoTextStyle.copyWith(...)` to adjust.
+const TextStyle kMonoTextStyle = TextStyle(
+  fontFamily: kMonoFontFamily,
+  fontFamilyFallback: kMonoFontFallback,
+);
+
 /// Builds the cockpit themes (dark and light) with shared shape and density.
 ThemeData buildCockpitTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
@@ -14,7 +29,6 @@ ThemeData buildCockpitTheme(Brightness brightness) {
     scaffoldBackgroundColor: dark
         ? const Color(0xFF0C0D11)
         : const Color(0xFFEFEFF4),
-    fontFamily: 'AppFont',
     visualDensity: VisualDensity.compact,
     splashFactory: InkSparkle.splashFactory,
     dividerTheme: DividerThemeData(

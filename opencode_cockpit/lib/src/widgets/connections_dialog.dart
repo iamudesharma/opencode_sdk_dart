@@ -680,7 +680,8 @@ class _PluginsTabState extends State<_PluginsTab> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall?.copyWith(
-                  fontFamily: 'AppMono',
+                  fontFamily: kMonoFontFamily,
+                  fontFamilyFallback: kMonoFontFallback,
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -967,7 +968,8 @@ class _ConfigTabState extends State<_ConfigTab> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        fontFamily: 'AppMono',
+                        fontFamily: kMonoFontFamily,
+                        fontFamilyFallback: kMonoFontFallback,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
@@ -1031,7 +1033,8 @@ class _ConfigTabState extends State<_ConfigTab> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelSmall?.copyWith(
-                    fontFamily: 'AppMono',
+                    fontFamily: kMonoFontFamily,
+                    fontFamilyFallback: kMonoFontFallback,
                     color: theme.codeForeground,
                   ),
                 ),
@@ -1053,7 +1056,8 @@ class _ConfigTabState extends State<_ConfigTab> {
                 child: SelectableText(
                   preview,
                   style: TextStyle(
-                    fontFamily: 'AppMono',
+                    fontFamily: kMonoFontFamily,
+                    fontFamilyFallback: kMonoFontFallback,
                     fontSize: 11.5,
                     height: 1.4,
                     color: theme.codeForeground,

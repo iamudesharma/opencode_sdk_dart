@@ -127,7 +127,7 @@ void main() {
 
       // Export the active session transcript to disk.
       final exportPath = '/tmp/opencode-cockpit-export.json';
-      final written = await controller.exportActiveSessionTo(exportPath);
+      final written = await controller.exportActiveSession(path: exportPath);
       final exported = jsonDecode(File(written).readAsStringSync());
       expect(exported, isA<Map<String, Object?>>());
       expect((exported as Map<String, Object?>)['info'], isNotNull);

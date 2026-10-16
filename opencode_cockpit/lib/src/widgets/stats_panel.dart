@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import '../cockpit_controller.dart';
+import '../theme.dart';
 import 'transcript.dart' show compactTokens;
 
 /// Explorer column when the Stats tab is active.
@@ -110,7 +111,8 @@ class StatsPanel extends StatelessWidget {
                       Text(
                         '${usage.succeeded}/${usage.calls}',
                         style: theme.textTheme.labelSmall?.copyWith(
-                          fontFamily: 'AppMono',
+                          fontFamily: kMonoFontFamily,
+                          fontFamilyFallback: kMonoFontFallback,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),

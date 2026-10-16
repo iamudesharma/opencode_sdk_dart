@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import '../cockpit_controller.dart';
+import '../theme.dart';
 
 /// Explorer column when the Git tab is active.
 class GitPanel extends StatelessWidget {
@@ -286,7 +287,8 @@ class _ChangeTile extends StatelessWidget {
             Text(
               '+${change.additions} -${change.deletions}',
               style: theme.textTheme.labelSmall?.copyWith(
-                fontFamily: 'AppMono',
+                fontFamily: kMonoFontFamily,
+                fontFamilyFallback: kMonoFontFallback,
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
