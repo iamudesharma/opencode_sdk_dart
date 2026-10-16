@@ -313,3 +313,7 @@ have their own READMEs with setup and usage details.
   `application/json; charset=utf-8` content type.
 - Web-only builds cannot manage a local service; everything else is
   platform-independent.
+
+## License
+
+This project is licensed under the MIT License — see [LICENSE](LICENSE).
