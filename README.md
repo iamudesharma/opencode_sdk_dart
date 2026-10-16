@@ -363,8 +363,8 @@ opencode_cockpit/                 # full macOS workbench (projects, git, PTY)
 genkit_opencode_custom/           # Genkit Dart plugin: OpenCode server bridge
                                   #   (openCode()) through this SDK, plus an
                                   #   OpenAI-compatible handle (openAI())
-gym_coach/                        # macOS app: streams workout + food plans from
-                                  #   an OpenCode model through the plugin above
+gym_coach/                        # macOS app: typed workout + food plans (with
+                                  #   a live-text mode) from an OpenCode model
 tool/
   generate.dart                   # OpenAPI 3.1 -> Dart 3 code generator
   live_smoke.dart                 # live read-only smoke test

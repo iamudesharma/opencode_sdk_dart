@@ -47,6 +47,7 @@ final class PlanRequest {
     required this.equipment,
     this.notes = '',
     this.includeNutrition = true,
+    this.nutritionTargets,
   });
 
   final FitnessGoal goal;
@@ -57,6 +58,9 @@ final class PlanRequest {
   final String notes;
   final bool includeNutrition;
 
+  /// Targets from the macro calculator, injected into the prompt verbatim.
+  final String? nutritionTargets;
+
   PlanRequest copyWith({
     FitnessGoal? goal,
     ExperienceLevel? level,
@@ -65,6 +69,7 @@ final class PlanRequest {
     GymEquipment? equipment,
     String? notes,
     bool? includeNutrition,
+    String? nutritionTargets,
   }) {
     return PlanRequest(
       goal: goal ?? this.goal,
@@ -74,23 +79,49 @@ final class PlanRequest {
       equipment: equipment ?? this.equipment,
       notes: notes ?? this.notes,
       includeNutrition: includeNutrition ?? this.includeNutrition,
+      nutritionTargets: nutritionTargets ?? this.nutritionTargets,
     );
   }
 
-  /// The user-turn prompt. The section headers are spelled out so the model
-  /// produces the structure the UI styles while streaming.
-  String toPrompt() {
+  /// The user-turn prompt.
+  ///
+  /// [structured] asks for the JSON plan the typed view parses (the plugin
+  /// appends the schema itself); the default spells out the section headers
+  /// the text view styles while streaming.
+  String toPrompt({bool structured = false}) {
     final trimmedNotes = notes.trim();
-    return '''
-Create a personalized training plan.
-
+    final targets = nutritionTargets;
+    final athlete = '''
 Athlete
 - Goal: ${goal.prompt}
 - Experience: ${level.label.toLowerCase()} (${level.description})
 - Training days: $daysPerWeek per week
 - Session length: $sessionMinutes minutes
 - Equipment: ${equipment.detail}
-${trimmedNotes.isEmpty ? '' : '- Notes from the athlete: $trimmedNotes\n'}
+${trimmedNotes.isEmpty ? '' : '- Notes from the athlete: $trimmedNotes\n'}${targets == null ? '' : "- Nutrition targets from the athlete's calculator: $targets\n"}''';
+
+    if (structured) {
+      return '''
+Create a personalized training plan.
+
+$athlete
+Return one JSON object matching the requested schema:
+- overview: one short paragraph describing the plan and who it is for;
+- days: exactly $daysPerWeek entries, each with a name, a one-line focus, an
+  optional warmup line, 4-6 exercises (name, a prescription such as
+  "3 x 8-12, rest 90s", and an optional note) and an optional cooldown line;
+- progression: the exact rule for adding weight or reps in week 2 and beyond,
+  plus when to deload;
+- meals: ${includeNutrition ? 'the sample food day: breakfast, lunch, dinner and a snack, with rough portions in grams and per-meal calories and protein' : 'null (the athlete asked for no nutrition)'};
+- safetyNotes: one short line respecting the athlete's notes.
+Every day must fit the session length. Plain JSON only: no markdown, no code
+fences, no commentary.''';
+    }
+
+    return '''
+Create a personalized training plan.
+
+$athlete
 Requirements
 - Use these section headers exactly, in capitals on their own line:
 ${[

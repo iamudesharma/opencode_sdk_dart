@@ -1,19 +1,56 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:genkit/genkit.dart';
 import 'package:gym_coach/src/coach_service.dart';
 import 'package:gym_coach/src/home_screen.dart';
+import 'package:gym_coach/src/plan.dart';
 import 'package:gym_coach/src/plan_request.dart';
+import 'package:gym_coach/src/plan_store.dart';
 import 'package:gym_coach/main.dart' show gymCoachTheme;
+
+/// A plan fixture with one day, one meal and a safety note.
+WorkoutPlan fixturePlan() => WorkoutPlan(
+  overview: 'A 3-day full-body plan with dumbbells.',
+  days: [
+    TrainingDay(
+      name: 'Day 1 — Full body',
+      focus: 'Squat focus, 45 minutes',
+      warmup: '5 min bike, leg swings',
+      exercises: [
+        Exercise(
+          name: 'Goblet squat',
+          prescription: '3 x 8-12, rest 90s',
+          notes: 'Knee-friendly depth.',
+        ),
+        Exercise(name: 'Floor press', prescription: '3 x 10, rest 75s'),
+      ],
+      cooldown: 'Hamstring and hip stretch',
+    ),
+  ],
+  progression: 'Add 2.5 kg when all sets hit the top of the rep range.',
+  meals: [
+    FoodMeal(
+      meal: 'Breakfast',
+      items: ['Oats 80 g', 'Whey 30 g', 'Berries 100 g'],
+      calories: 600,
+      proteinG: 45,
+    ),
+  ],
+  safetyNotes: 'Stop if the left knee hurts.',
+);
 
 /// A service that answers from fixtures instead of the OpenCode server.
 final class FakeCoachService extends CoachService {
-  FakeCoachService({this.failCatalog = false});
+  FakeCoachService({this.failCatalog = false, this.failTyped = false});
 
   final bool failCatalog;
+  final bool failTyped;
   final generated = <PlanRequest>[];
+  final typedRequests = <PlanRequest>[];
   var cancelled = false;
 
   @override
@@ -23,6 +60,24 @@ final class FakeCoachService extends CoachService {
       CoachModel(id: kPreferredModelId, label: 'LongCat 2.5 Preview Free'),
       CoachModel(id: 'some-paid-model', label: 'Some Paid Model'),
     ];
+  }
+
+  @override
+  Future<TypedPlanResult> generateTypedPlan({
+    required String modelId,
+    required PlanRequest request,
+  }) async {
+    typedRequests.add(request);
+    if (failTyped) {
+      throw GenkitException(
+        'The model answered with text that did not match the plan schema.',
+      );
+    }
+    return TypedPlanResult(
+      plan: fixturePlan(),
+      usage: GenerationUsage(totalTokens: 128),
+      latencyMs: 12,
+    );
   }
 
   @override
@@ -51,25 +106,69 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('renders the form and streams a generated plan', (
+  late Directory temp;
+  late PlanStore store;
+
+  setUp(() {
+    temp = Directory.systemTemp.createTempSync('gym_coach_widget_test');
+    store = PlanStore(directory: temp.path);
+  });
+
+  tearDown(() {
+    if (temp.existsSync()) temp.deleteSync(recursive: true);
+  });
+
+  Future<void> pumpApp(WidgetTester tester, CoachService service) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: gymCoachTheme(),
+        home: HomeScreen(service: service, store: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('generates a typed plan and renders day tabs and meals', (
     tester,
   ) async {
     useDesktopViewport(tester);
     final service = FakeCoachService();
-    await tester.pumpWidget(
-      MaterialApp(theme: gymCoachTheme(), home: HomeScreen(service: service)),
-    );
-    await tester.pumpAndSettle();
+    await pumpApp(tester, service);
 
-    // The preferred model was selected from the catalog.
-    expect(find.textContaining('LongCat'), findsWidgets);
+    // Typed mode is the default.
+    expect(find.text('Typed plan'), findsOneWidget);
 
+    await tester.tap(find.text('Generate plan'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(service.typedRequests, hasLength(1));
+    expect(service.generated, isEmpty);
+    // The prompt asked for the structured shape.
+    expect(service.typedRequests.single.nutritionTargets, isNull);
+
+    expect(find.text('Day 1 — Full body'), findsOneWidget);
+    expect(find.text('Goblet squat'), findsOneWidget);
+    expect(find.text('3 x 8-12, rest 90s'), findsOneWidget);
+    expect(find.text('Breakfast'), findsOneWidget);
+    expect(find.text('600 kcal'), findsOneWidget);
+    expect(find.textContaining('128 tokens'), findsOneWidget);
+  });
+
+  testWidgets('live text mode streams the plan as before', (tester) async {
+    useDesktopViewport(tester);
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    await tester.tap(find.text('Live text'));
+    await tester.pump();
     await tester.tap(find.text('Generate plan'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(service.generated, hasLength(1));
+    expect(service.typedRequests, isEmpty);
     expect(find.textContaining('full-body plan with dumbbells'), findsWidgets);
     expect(find.textContaining('42 tokens'), findsOneWidget);
   });
@@ -77,19 +176,100 @@ void main() {
   testWidgets('preset cards fill the form and generate', (tester) async {
     useDesktopViewport(tester);
     final service = FakeCoachService();
-    await tester.pumpWidget(
-      MaterialApp(theme: gymCoachTheme(), home: HomeScreen(service: service)),
-    );
-    await tester.pumpAndSettle();
+    await pumpApp(tester, service);
 
     await tester.tap(find.text('Hotel room week'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(service.generated, hasLength(1));
-    final request = service.generated.single;
+    expect(service.typedRequests, hasLength(1));
+    final request = service.typedRequests.single;
     expect(request.equipment, GymEquipment.bodyweight);
     expect(request.sessionMinutes, 30);
+  });
+
+  testWidgets('macro calculator computes targets and applies them', (
+    tester,
+  ) async {
+    useDesktopViewport(tester);
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    // Defaults: 80 kg, 178 cm, 30 y, male, moderate, maintain.
+    await tester.scrollUntilVisible(
+      find.text('Use in plan'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('Use in plan'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('kcal'), findsWidgets);
+    await tester.tap(find.text('Use in plan'), warnIfMissed: true);
+    await tester.pump();
+
+    await tester.tap(find.text('Generate plan'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final request = service.typedRequests.single;
+    expect(request.nutritionTargets, isNotNull);
+    expect(request.nutritionTargets, contains('kcal/day'));
+    expect(request.nutritionTargets, contains('g protein'));
+    // The structured prompt carries the targets.
+    expect(request.toPrompt(structured: true), contains('calculator'));
+  });
+
+  testWidgets('typed mode failure suggests live text', (tester) async {
+    useDesktopViewport(tester);
+    final service = FakeCoachService(failTyped: true);
+    await pumpApp(tester, service);
+
+    await tester.tap(find.text('Generate plan'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('Generation failed'), findsOneWidget);
+    expect(
+      find.textContaining('did not match the plan schema'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('history dialog lists and loads saved plans', (tester) async {
+    useDesktopViewport(tester);
+    // Seed the store with one saved plan.
+    File('${temp.path}/plan-seed.json').writeAsStringSync(
+      jsonEncode({
+        'id': 'plan-seed',
+        'createdAt': DateTime(2026, 10, 16, 9).toIso8601String(),
+        'modelId': kPreferredModelId,
+        'title': 'Lose fat · 4 days · LongCat 2.5 Preview Free',
+        'markdown': '# Training plan\nSeed.',
+        'rawText': 'PLAN OVERVIEW\nSeed plan text.',
+      }),
+    );
+
+    final service = FakeCoachService();
+    await pumpApp(tester, service);
+
+    await tester.tap(find.byTooltip('History'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Plan history'), findsOneWidget);
+    expect(
+      find.text('Lose fat · 4 days · LongCat 2.5 Preview Free'),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.text('Lose fat · 4 days · LongCat 2.5 Preview Free'),
+    );
+    await tester.pumpAndSettle();
+
+    // The saved text plan is rendered in live-text mode.
+    expect(find.textContaining('Seed plan text'), findsOneWidget);
+    expect(service.generated, isEmpty);
+    expect(service.typedRequests, isEmpty);
   });
 
   testWidgets('shows a retry path when the server is unreachable', (
@@ -99,7 +279,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: gymCoachTheme(),
-        home: HomeScreen(service: FakeCoachService(failCatalog: true)),
+        home: HomeScreen(
+          service: FakeCoachService(failCatalog: true),
+          store: store,
+        ),
       ),
     );
     await tester.pumpAndSettle();

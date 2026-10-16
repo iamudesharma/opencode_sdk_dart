@@ -4,6 +4,7 @@ library;
 import 'package:genkit/genkit.dart';
 import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
 
+import 'plan.dart';
 import 'plan_request.dart';
 
 /// The model recommended by the app when the server offers it.
@@ -48,6 +49,20 @@ final class PlanCompleted extends PlanEvent {
   final bool cancelled;
   final GenerationUsage? usage;
   final String? finishMessage;
+}
+
+/// A typed plan plus the generation's usage.
+final class TypedPlanResult {
+  const TypedPlanResult({required this.plan, this.usage, this.latencyMs});
+
+  /// The parsed plan.
+  final WorkoutPlan plan;
+
+  /// Token usage reported by the server.
+  final GenerationUsage? usage;
+
+  /// Wall-clock latency of the generation, milliseconds.
+  final double? latencyMs;
 }
 
 /// Drives the OpenCode-backed coach.
@@ -118,6 +133,62 @@ class CoachService {
             result.finishReason == FinishReason.aborted,
         usage: result.usage,
         finishMessage: result.finishMessage,
+      );
+    } finally {
+      _active = null;
+    }
+  }
+
+  /// Generates a typed plan for [request] from [modelId].
+  ///
+  /// The bridge appends the plan schema to the prompt and Genkit parses the
+  /// JSON answer, so a model that ignores the schema fails with an actionable
+  /// error instead of a half-parsed plan.
+  Future<TypedPlanResult> generateTypedPlan({
+    required String modelId,
+    required PlanRequest request,
+  }) async {
+    final controller = CancellationController();
+    _active = controller;
+    final watch = Stopwatch()..start();
+    try {
+      final result = await _genkit.generate<WorkoutPlan, OpenCodeModelOptions>(
+        model: openCode.model(modelId),
+        messages: [
+          Message(role: Role.system, content: [TextPart(text: _systemPrompt)]),
+          Message(
+            role: Role.user,
+            content: [TextPart(text: request.toPrompt(structured: true))],
+          ),
+        ],
+        outputSchema: WorkoutPlan.$schema,
+        cancel: controller.token,
+      );
+      if (controller.isCancelled ||
+          result.finishReason == FinishReason.aborted) {
+        throw GenkitException(
+          'Stopped by the athlete',
+          status: StatusCode.cancelled,
+        );
+      }
+      if (result.finishReason == FinishReason.failed) {
+        throw GenkitException(
+          result.error?.message ?? 'Generation failed',
+          status: StatusCode.internal,
+        );
+      }
+      final plan = result.output;
+      if (plan == null) {
+        throw GenkitException(
+          'The model answered with text that did not match the plan schema. '
+          'Try again, or switch to Live text.',
+          status: StatusCode.internal,
+        );
+      }
+      return TypedPlanResult(
+        plan: plan,
+        usage: result.usage,
+        latencyMs: watch.elapsedMicroseconds / 1000,
       );
     } finally {
       _active = null;
