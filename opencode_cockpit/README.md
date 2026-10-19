@@ -139,6 +139,14 @@ flutter test tool/live_cockpit_check.dart  # live end-to-end (needs a server)
 - `test/cockpit_controller_test.dart` — event reducer, session tree filtering,
   permissions, busy tracking, `@` reference insertion, theme toggle, and
   notification coalescing.
+- `test/cockpit_effect_test.dart` — the effect-bridge contracts: reads retry
+  transient failures (three attempts), writes are never retried, typed
+  `OpenCodeError` surfacing, event-stream ordering through `toNative`, and
+  fiber cancellation on dispose.
+- `test/effect_socket_test.dart` — PTY and event lifecycles against a real
+  loopback server: `ptyConnect`/`ptyText`/`ptyClose` through
+  `acquireUseRelease`, resume cursors, framed persistent input, detach without
+  killing the server-side terminal, and SSE teardown on dispose.
 - `test/ui_preview_test.dart` — renders the screens with real macOS fonts and
   writes them to `test/previews/` (including the narrow layout).
 - `test/model_picker_test.dart` — searchable model dialog: full catalog,
@@ -194,9 +202,22 @@ lib/
 ```
 
 The controller mirrors the reference client's event semantics (the same
-reducer as `chat_app`, extended with project/session-tree/panel state), while
-panels call the generated resources directly for pull-based data (files, git,
-stats, diffs).
+reducer as `chat_app`, extended with project/session-tree/panel state).
+
+All server work runs through the effect bridge (`opencode_effect` over
+`effect_core`): one `Runtime` and one `EffectOpenCodeClient` per controller
+lifetime, `client.call(...)` for every resource method, `withReadRetry()` on
+reads only (three attempts, transient statuses — the old transport
+`RetryPolicy` defaults), `OpenCodeError` as the typed failure channel, the
+shared event stream consumed through `EffectStream.toNative`, and forked
+fibers for the PTY sockets (acquired with `Effect.acquireUseRelease`, consumed
+through `ptyText`, released with `ptyClose`). `dispose()` interrupts the
+fibers, closes the client, and shuts the runtime down.
+
+The Connections dialog is the one widget that still talks to the generated
+resources directly, so the controller keeps exposing the raw client
+(`controller.client`) for it; everything below the widget layer is
+effect-based.
 
 ## Notes
 

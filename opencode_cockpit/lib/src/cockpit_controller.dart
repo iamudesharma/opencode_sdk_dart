@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:effect_core/effect_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:opencode_effect/opencode_effect.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import 'models.dart';
@@ -35,10 +37,18 @@ final class SessionNode {
 }
 
 /// The cockpit: everything the workbench UI reads and mutates.
+///
+/// Server work runs through the effect bridge: one [EffectOpenCodeClient] and
+/// one [Runtime] per controller lifetime, reads compose `withReadRetry()`
+/// (three attempts on transient statuses, the old transport `RetryPolicy`
+/// defaults), writes never retry, the shared event stream is a pull stream
+/// consumed through [EffectStream.toNative], and PTY consumers are forked
+/// fibers that are interrupted on close.
 class CockpitController extends ChangeNotifier {
   CockpitController();
 
-  OpenCodeClient? _client;
+  final Runtime<Unit> _runtime = Runtime<Unit>(Unit.value);
+  EffectOpenCodeClient? _client;
   StreamSubscription<OpenCodeEvent>? _events;
   Timer? _reconnectTimer;
   Timer? _sessionsDebounce;
@@ -63,7 +73,12 @@ class CockpitController extends ChangeNotifier {
   @visibleForTesting
   http.Client Function()? httpClientFactory;
 
-  OpenCodeClient? get client => _client;
+  /// The effect client backing the current connection, when connected.
+  EffectOpenCodeClient? get effectClient => _client;
+
+  /// The raw SDK client, kept for widget-level surfaces that still speak the
+  /// generated API directly (the connections dialog).
+  OpenCodeClient? get client => _client?.sdk;
 
   bool get isConnected => connection == CockpitConnection.connected;
 
@@ -92,26 +107,38 @@ class CockpitController extends ChangeNotifier {
         } else if (kIsWeb) {
           url = Uri.parse(Uri.base.origin);
         } else {
-          final endpoint =
-              await OpenCodeService.discover() ??
-              await OpenCodeService.ensure();
+          var endpoint = await _runtime.runOpenCode<ServiceEndpoint?>(
+            discoverOpenCodeService<Unit>(),
+          );
+          endpoint ??= await _runtime.runOpenCode<ServiceEndpoint>(
+            ensureOpenCodeService<Unit>(),
+          );
           url = endpoint.url;
           headers = OpenCodeService.headers(endpoint);
         }
       }
-      final client = OpenCodeClient(
+      final sdk = OpenCodeClient(
         baseUrl: url!,
         headers: headers,
         clientFactory: httpClientFactory,
       );
-      client.transport.retry = const RetryPolicy();
+      // Retries live in the effects now: reads compose `withReadRetry()`,
+      // writes are never retried (a re-sent prompt would run twice).
+      sdk.transport.retry = null;
+      final client = EffectOpenCodeClient(sdk);
       _client = client;
-      baseUrl = client.transport.baseUrl;
-      final info = await client.server.info();
+      baseUrl = sdk.transport.baseUrl;
+      final info = await _runtime.runOpenCode(
+        client
+            .call<ServerInfo, Unit>(
+              (options) => client.sdk.server.info(options: options),
+            )
+            .withReadRetry(),
+      );
       serverVersion = info.version;
       connection = CockpitConnection.connected;
       debugPrint(
-        'OpenCode Cockpit connected to ${client.transport.baseUrl} '
+        'OpenCode Cockpit connected to ${sdk.transport.baseUrl} '
         '(v${info.version})',
       );
       _notify();
@@ -126,6 +153,17 @@ class CockpitController extends ChangeNotifier {
 
   static String describe(Object error) {
     return switch (error) {
+      // The effect bridge's typed errors; each variant maps onto the message
+      // the SDK exception used to produce.
+      OpenCodeApiError(:final cause) => switch (cause) {
+        OpenCodeStatusException(:final message) => message,
+        _ => '$cause',
+      },
+      OpenCodeTransportError(:final cause) =>
+        'Cannot reach the server (${cause.cause})',
+      OpenCodeDecodeError(:final cause) =>
+        'Unexpected response: ${cause.message}',
+      OpenCodeError(:final message) => message,
       OpenCodeStatusException(:final message) => message,
       OpenCodeTransportException(:final cause) =>
         'Cannot reach the server ($cause)',
@@ -137,19 +175,28 @@ class CockpitController extends ChangeNotifier {
 
   void _listen() {
     _events?.cancel();
-    _events = _client!.event.subscribe().listen(
-      handleEvent,
-      onError: (Object error, StackTrace stackTrace) {
-        if (_disposed) return;
-        connectionError = 'Event stream lost; reconnecting\u2026';
-        _notify();
-        _scheduleReconnect();
-      },
-      onDone: () {
-        if (_disposed || !isConnected) return;
-        _scheduleReconnect();
-      },
-    );
+    final client = _client;
+    if (client == null) return;
+    // The bridge's pull stream carries the same shared-connection events as
+    // `client.event.subscribe()` did; `toNative` runs one fiber per listen and
+    // interrupts it (closing the SDK subscription) when the subscription is
+    // cancelled.
+    _events = client
+        .events<Unit>()
+        .toNative(_runtime)
+        .listen(
+          handleEvent,
+          onError: (Object error, StackTrace stackTrace) {
+            if (_disposed) return;
+            connectionError = 'Event stream lost; reconnecting\u2026';
+            _notify();
+            _scheduleReconnect();
+          },
+          onDone: () {
+            if (_disposed || !isConnected) return;
+            _scheduleReconnect();
+          },
+        );
   }
 
   void _scheduleReconnect() {
@@ -196,6 +243,26 @@ class CockpitController extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // Effect bridge
+  // ---------------------------------------------------------------------------
+
+  /// Binds one SDK call to the controller's effect runtime.
+  ///
+  /// [read] marks a read operation, which composes the standard retry schedule
+  /// (`withReadRetry`: three attempts, transient statuses — the old transport
+  /// `RetryPolicy` defaults). Writes must never pass `read: true`: the server
+  /// may have admitted the request before it failed.
+  Effect<A, OpenCodeError, Unit> _sdkCall<A>(
+    Future<A> Function(EffectOpenCodeClient client, RequestOptions options)
+    invoke, {
+    bool read = false,
+  }) {
+    final client = _client!;
+    final effect = client.call<A, Unit>((options) => invoke(client, options));
+    return read ? effect.withReadRetry() : effect;
+  }
+
+  // ---------------------------------------------------------------------------
   // Server catalogs
   // ---------------------------------------------------------------------------
 
@@ -205,10 +272,14 @@ class CockpitController extends ChangeNotifier {
   List<ModelInfo> models = const [];
 
   Future<void> loadProjects() async {
-    final client = _client;
-    if (client == null || !isConnected || _disposed) return;
+    if (_client == null || !isConnected || _disposed) return;
     try {
-      projects = await client.project.list();
+      projects = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.project.list(options: options),
+          read: true,
+        ),
+      );
       if (activeProject == null && projects.isNotEmpty) {
         activeProject = projects.first;
       }
@@ -220,18 +291,25 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> loadAgentsAndModels() async {
-    final client = _client;
-    if (client == null || _disposed) return;
+    if (_client == null || _disposed) return;
     try {
-      agents = (await client.agent.list()).data;
+      agents = (await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.agent.list(options: options),
+          read: true,
+        ),
+      )).data;
     } on Object {
       // Optional.
     }
     try {
       models =
-          (await client.model.list()).data
-              .where((model) => model.enabled)
-              .toList()
+          (await _runtime.runOpenCode(
+              _sdkCall(
+                (client, options) => client.sdk.model.list(options: options),
+                read: true,
+              ),
+            )).data.where((model) => model.enabled).toList()
             ..sort((a, b) => a.name.compareTo(b.name));
     } on Object {
       // Optional.
@@ -332,17 +410,22 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> loadSessions() async {
-    final client = _client;
-    if (client == null || !isConnected || _disposed) return;
+    if (_client == null || !isConnected || _disposed) return;
     loadingSessions = true;
     _notify();
     try {
       final directory = activeProject?.canonical;
-      final response = await client.session.list(
-        limit: '80',
-        order: SessionListOrder.desc,
-        parentID: 'null',
-        directory: directory == null ? null : AbsolutePath(directory),
+      final response = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.list(
+            limit: '80',
+            order: SessionListOrder.desc,
+            parentID: 'null',
+            directory: directory == null ? null : AbsolutePath(directory),
+            options: options,
+          ),
+          read: true,
+        ),
       );
       rootSessions = [for (final info in response.data) SessionNode(info)];
       if (activeSession != null) {
@@ -378,11 +461,16 @@ class CockpitController extends ChangeNotifier {
     node.loadingChildren = true;
     _notify();
     try {
-      final client = _client!;
-      final response = await client.session.list(
-        limit: '50',
-        order: SessionListOrder.desc,
-        parentID: SessionID(node.id),
+      final response = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.list(
+            limit: '50',
+            order: SessionListOrder.desc,
+            parentID: SessionID(node.id),
+            options: options,
+          ),
+          read: true,
+        ),
       );
       node.children
         ..clear()
@@ -435,15 +523,20 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> loadMessages() async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null || _disposed) return;
+    if (_client == null || session == null || _disposed) return;
     loadingMessages = true;
     _notify();
     try {
-      final response = await client.session.message.list(
-        sessionID: session.id,
-        limit: '200',
+      final response = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.message.list(
+            sessionID: session.id,
+            limit: '200',
+            options: options,
+          ),
+          read: true,
+        ),
       );
       final loaded = <ChatMessage>[];
       for (final item in response.data) {
@@ -463,13 +556,17 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<SessionInfo?> newSession({String? title}) async {
-    final client = _client;
-    if (client == null || !isConnected) return null;
+    if (_client == null || !isConnected) return null;
     try {
       final location = activeLocation;
-      final session = await client.session.create(
-        title: title,
-        location: location.directory == null ? null : location,
+      final session = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.create(
+            title: title,
+            location: location.directory == null ? null : location,
+            options: options,
+          ),
+        ),
       );
       await loadSessions();
       await openSession(session);
@@ -482,10 +579,17 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> renameSession(SessionInfo session, String title) async {
-    final client = _client;
-    if (client == null) return;
+    if (_client == null) return;
     try {
-      await client.session.update(sessionID: session.id, title: title);
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.update(
+            sessionID: session.id,
+            title: title,
+            options: options,
+          ),
+        ),
+      );
       final node = findNode(session.id);
       if (node != null) node.info = _withTitle(node.info, title);
       if (activeSession?.id == session.id) {
@@ -503,10 +607,16 @@ class CockpitController extends ChangeNotifier {
       SessionInfo.fromJson(session.toJson()..['title'] = title);
 
   Future<void> deleteSession(SessionInfo session) async {
-    final client = _client;
-    if (client == null) return;
+    if (_client == null) return;
     try {
-      await client.session.remove(sessionID: session.id);
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.remove(
+            sessionID: session.id,
+            options: options,
+          ),
+        ),
+      );
     } on Object catch (error) {
       connectionError = describe(error);
     }
@@ -521,10 +631,14 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> forkSession(SessionInfo session) async {
-    final client = _client;
-    if (client == null) return;
+    if (_client == null) return;
     try {
-      final forked = await client.session.fork(sessionID: session.id);
+      final forked = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) =>
+              client.sdk.session.fork(sessionID: session.id, options: options),
+        ),
+      );
       await loadSessions();
       await openSession(forked);
     } on Object catch (error) {
@@ -534,13 +648,17 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> switchAgent(String agentID) async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
-      await client.session.switchAgent(
-        sessionID: session.id,
-        agent: AgentID(agentID),
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.switchAgent(
+            sessionID: session.id,
+            agent: AgentID(agentID),
+            options: options,
+          ),
+        ),
       );
       await loadSessions();
     } on Object catch (error) {
@@ -550,11 +668,18 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> switchModel(ModelRef model) async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
-      await client.session.switchModel(sessionID: session.id, model: model);
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.switchModel(
+            sessionID: session.id,
+            model: model,
+            options: options,
+          ),
+        ),
+      );
       await loadSessions();
     } on Object catch (error) {
       connectionError = describe(error);
@@ -574,8 +699,7 @@ class CockpitController extends ChangeNotifier {
     session ??= await newSession();
     final target = session;
     if (target == null) return;
-    final client = _client;
-    if (client == null) return;
+    if (_client == null) return;
     sending = true;
     final optimistic = ChatMessage(
       id: 'local_${DateTime.now().microsecondsSinceEpoch}',
@@ -588,7 +712,17 @@ class CockpitController extends ChangeNotifier {
       _notify();
     }
     try {
-      await client.session.prompt(sessionID: target.id, text: text);
+      // A prompt is a write: it is never retried, because the turn may have
+      // been admitted server-side.
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.prompt(
+            sessionID: target.id,
+            text: text,
+            options: options,
+          ),
+        ),
+      );
       final sentSessionID = target.id;
       // While the turn is still running the live deltas own the transcript
       // and the completion reconcile replaces the list when the step ends,
@@ -635,11 +769,17 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> interrupt() async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
-      await client.session.interrupt(sessionID: session.id);
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.interrupt(
+            sessionID: session.id,
+            options: options,
+          ),
+        ),
+      );
     } on Object catch (error) {
       connectionError = describe(error);
       _notify();
@@ -650,13 +790,17 @@ class CockpitController extends ChangeNotifier {
     PermissionRequest request,
     PermissionReply decision,
   ) async {
-    final client = _client;
-    if (client == null) return;
+    if (_client == null) return;
     try {
-      await client.permission.reply(
-        sessionID: request.sessionID,
-        requestID: request.id,
-        decision: decision,
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.permission.reply(
+            sessionID: request.sessionID,
+            requestID: request.id,
+            decision: decision,
+            options: options,
+          ),
+        ),
       );
       pendingPermissions = [
         for (final candidate in pendingPermissions)
@@ -685,15 +829,20 @@ class CockpitController extends ChangeNotifier {
   String? referenceQuery;
 
   Future<void> loadDirectory(String path) async {
-    final client = _client;
-    if (client == null || !isConnected || _disposed) return;
+    if (_client == null || !isConnected || _disposed) return;
     loadingFiles = true;
     fileRoot = path;
     _notify();
     try {
-      final response = await client.filesystem.list(
-        location: activeLocation,
-        path: path.isEmpty ? null : path,
+      final response = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.filesystem.list(
+            location: activeLocation,
+            path: path.isEmpty ? null : path,
+            options: options,
+          ),
+          read: true,
+        ),
       );
       final entries = response.data.toList()
         ..sort((a, b) {
@@ -712,8 +861,7 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> openFile(String relativePath) async {
-    final client = _client;
-    if (client == null) return;
+    if (_client == null) return;
     selectedFilePath = relativePath;
     selectedFileBytes = null;
     selectedFileText = null;
@@ -722,7 +870,13 @@ class CockpitController extends ChangeNotifier {
     inspectorTab = InspectorTab.file;
     _notify();
     try {
-      final bytes = await client.filesystem.read(path: relativePath);
+      final bytes = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) =>
+              client.sdk.filesystem.read(path: relativePath, options: options),
+          read: true,
+        ),
+      );
       selectedFileBytes = bytes;
       final text = _decodeText(bytes);
       if (text != null) {
@@ -785,13 +939,18 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> _searchFiles(String query) async {
-    final client = _client;
-    if (client == null || _disposed) return;
+    if (_client == null || _disposed) return;
     try {
-      final response = await client.filesystem.find(
-        location: activeLocation,
-        query: query,
-        limit: '12',
+      final response = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.filesystem.find(
+            location: activeLocation,
+            query: query,
+            limit: '12',
+            options: options,
+          ),
+          read: true,
+        ),
       );
       if (referenceQuery != query) return;
       referenceCandidates = response.data;
@@ -814,8 +973,7 @@ class CockpitController extends ChangeNotifier {
   FileDiffInfo? inspectDiff;
 
   Future<void> loadGit() async {
-    final client = _client;
-    if (client == null || !isConnected || _disposed) return;
+    if (_client == null || !isConnected || _disposed) return;
     loadingGit = true;
     _notify();
     final location = activeLocation;
@@ -824,26 +982,69 @@ class CockpitController extends ChangeNotifier {
       // The five requests are independent: fire them together and wait for
       // all of them so one failure still reports through connectionError.
       await Future.wait<void>([
-        client.vcs.get(location: location).then((response) {
-          vcsInfo = response.data;
-        }),
-        client.vcs.status(location: location).then((response) {
-          gitChanges = response.data;
-        }),
-        client.vcs.diff(location: location, mode: VcsMode.working).then((
-          response,
-        ) {
-          gitDiffFiles = response.data;
-        }),
-        client.vcs.branchList(location: location).then((response) {
-          branches = response.data;
-        }),
+        _runtime
+            .runOpenCode(
+              _sdkCall(
+                (client, options) =>
+                    client.sdk.vcs.get(location: location, options: options),
+                read: true,
+              ),
+            )
+            .then((response) {
+              vcsInfo = response.data;
+            }),
+        _runtime
+            .runOpenCode(
+              _sdkCall(
+                (client, options) =>
+                    client.sdk.vcs.status(location: location, options: options),
+                read: true,
+              ),
+            )
+            .then((response) {
+              gitChanges = response.data;
+            }),
+        _runtime
+            .runOpenCode(
+              _sdkCall(
+                (client, options) => client.sdk.vcs.diff(
+                  location: location,
+                  mode: VcsMode.working,
+                  options: options,
+                ),
+                read: true,
+              ),
+            )
+            .then((response) {
+              gitDiffFiles = response.data;
+            }),
+        _runtime
+            .runOpenCode(
+              _sdkCall(
+                (client, options) => client.sdk.vcs.branchList(
+                  location: location,
+                  options: options,
+                ),
+                read: true,
+              ),
+            )
+            .then((response) {
+              branches = response.data;
+            }),
         if (projectID != null)
-          client.worktree.list(projectID: ProjectID(projectID)).then((
-            response,
-          ) {
-            worktrees = response;
-          }),
+          _runtime
+              .runOpenCode(
+                _sdkCall(
+                  (client, options) => client.sdk.worktree.list(
+                    projectID: ProjectID(projectID),
+                    options: options,
+                  ),
+                  read: true,
+                ),
+              )
+              .then((response) {
+                worktrees = response;
+              }),
       ]);
     } on Object catch (error) {
       connectionError = describe(error);
@@ -869,11 +1070,16 @@ class CockpitController extends ChangeNotifier {
   List<FileDiffInfo> sessionChanges = const [];
 
   Future<void> loadSessionChanges() async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null || _disposed) return;
+    if (_client == null || session == null || _disposed) return;
     try {
-      final response = await client.session.diff(sessionID: session.id);
+      final response = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) =>
+              client.sdk.session.diff(sessionID: session.id, options: options),
+          read: true,
+        ),
+      );
       if (activeSession?.id == session.id) sessionChanges = response;
     } on Object {
       sessionChanges = const [];
@@ -888,13 +1094,17 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> createWorktree(String name) async {
-    final client = _client;
     final project = activeProject;
-    if (client == null || project == null) return;
+    if (_client == null || project == null) return;
     try {
-      await client.worktree.create(
-        projectID: ProjectID(project.id),
-        name: name,
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.worktree.create(
+            projectID: ProjectID(project.id),
+            name: name,
+            options: options,
+          ),
+        ),
       );
       await loadGit();
     } on Object catch (error) {
@@ -904,14 +1114,18 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> removeWorktree(String directory) async {
-    final client = _client;
     final project = activeProject;
-    if (client == null || project == null) return;
+    if (_client == null || project == null) return;
     try {
-      await client.worktree.remove(
-        projectID: ProjectID(project.id),
-        directory: AbsolutePath(directory),
-        force: false,
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.worktree.remove(
+            projectID: ProjectID(project.id),
+            directory: AbsolutePath(directory),
+            force: false,
+            options: options,
+          ),
+        ),
       );
       await loadGit();
     } on Object catch (error) {
@@ -928,13 +1142,18 @@ class CockpitController extends ChangeNotifier {
   bool loadingStats = false;
 
   Future<void> loadStats() async {
-    final client = _client;
-    if (client == null || !isConnected || _disposed) return;
+    if (_client == null || !isConnected || _disposed) return;
     loadingStats = true;
     _notify();
     try {
-      stats = await client.session.stats(
-        tools: ExperimentalSessionStatsTools.detail,
+      stats = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.stats(
+            tools: ExperimentalSessionStatsTools.detail,
+            options: options,
+          ),
+          read: true,
+        ),
       );
     } on Object catch (error) {
       debugPrint('stats failed: ${describe(error)}');
@@ -954,13 +1173,20 @@ class CockpitController extends ChangeNotifier {
 
   Future<void> loadForms() async {
     if (_disposed) return;
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     loadingForms = true;
     _notify();
     try {
-      sessionForms = await client.session.form.list(sessionID: session.id);
+      sessionForms = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.form.list(
+            sessionID: session.id,
+            options: options,
+          ),
+          read: true,
+        ),
+      );
     } on Object {
       sessionForms = const [];
     } finally {
@@ -970,13 +1196,18 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> openForm(FormInfo info) async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
-      activeForm = await client.session.form.get(
-        sessionID: session.id,
-        formID: info.id,
+      activeForm = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.form.get(
+            sessionID: session.id,
+            formID: info.id,
+            options: options,
+          ),
+          read: true,
+        ),
       );
     } on Object catch (error) {
       connectionError = describe(error);
@@ -990,15 +1221,19 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> replyForm(Map<String, Object?> answer) async {
-    final client = _client;
     final session = activeSession;
     final form = activeForm;
-    if (client == null || session == null || form == null) return;
+    if (_client == null || session == null || form == null) return;
     try {
-      await client.session.form.reply(
-        sessionID: session.id,
-        formID: form.id,
-        answer: answer,
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.form.reply(
+            sessionID: session.id,
+            formID: form.id,
+            answer: answer,
+            options: options,
+          ),
+        ),
       );
       activeForm = null;
     } on Object catch (error) {
@@ -1009,12 +1244,19 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> cancelActiveForm() async {
-    final client = _client;
     final session = activeSession;
     final form = activeForm;
-    if (client == null || session == null || form == null) return;
+    if (_client == null || session == null || form == null) return;
     try {
-      await client.session.form.cancel(sessionID: session.id, formID: form.id);
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.form.cancel(
+            sessionID: session.id,
+            formID: form.id,
+            options: options,
+          ),
+        ),
+      );
       activeForm = null;
     } on Object catch (error) {
       connectionError = describe(error);
@@ -1032,11 +1274,18 @@ class CockpitController extends ChangeNotifier {
 
   Future<void> loadInbox() async {
     if (_disposed) return;
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
-      inboxItems = await client.session.inbox.list(sessionID: session.id);
+      inboxItems = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.inbox.list(
+            sessionID: session.id,
+            options: options,
+          ),
+          read: true,
+        ),
+      );
     } on Object {
       inboxItems = const [];
     }
@@ -1044,13 +1293,17 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> cancelInboxItem(SessionInboxInfo item) async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
-      await client.session.inbox.cancel(
-        sessionID: session.id,
-        inboxID: item.id,
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.inbox.cancel(
+            sessionID: session.id,
+            inboxID: item.id,
+            options: options,
+          ),
+        ),
       );
     } on Object catch (error) {
       connectionError = describe(error);
@@ -1062,14 +1315,18 @@ class CockpitController extends ChangeNotifier {
     SessionInboxInfo item,
     SessionInboxDelivery delivery,
   ) async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
-      await client.session.inbox.update(
-        sessionID: session.id,
-        inboxID: item.id,
-        delivery: delivery,
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.inbox.update(
+            sessionID: session.id,
+            inboxID: item.id,
+            delivery: delivery,
+            options: options,
+          ),
+        ),
       );
     } on Object catch (error) {
       connectionError = describe(error);
@@ -1102,10 +1359,9 @@ class CockpitController extends ChangeNotifier {
 
   /// Prepends the previous page of messages, keeping scroll data intact.
   Future<void> loadOlderMessages() async {
-    final client = _client;
     final session = activeSession;
     final cursor = olderMessagesCursor;
-    if (client == null ||
+    if (_client == null ||
         session == null ||
         cursor == null ||
         loadingOlderMessages ||
@@ -1115,10 +1371,16 @@ class CockpitController extends ChangeNotifier {
     loadingOlderMessages = true;
     _notify();
     try {
-      final response = await client.session.message.list(
-        sessionID: session.id,
-        limit: '80',
-        cursor: cursor,
+      final response = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.message.list(
+            sessionID: session.id,
+            limit: '80',
+            cursor: cursor,
+            options: options,
+          ),
+          read: true,
+        ),
       );
       if (activeSession?.id == session.id) {
         final known = {for (final message in messages) message.id};
@@ -1149,12 +1411,19 @@ class CockpitController extends ChangeNotifier {
   /// triggers a browser download and returns the file name. The parsing side
   /// is shared through [importSessionFromJson].
   Future<String> exportActiveSession({String? path}) async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) {
+    if (_client == null || session == null) {
       throw StateError('No active session to export');
     }
-    final data = await client.session.exportSession(sessionID: session.id);
+    final data = await _runtime.runOpenCode(
+      _sdkCall(
+        (client, options) => client.sdk.session.exportSession(
+          sessionID: session.id,
+          options: options,
+        ),
+        read: true,
+      ),
+    );
     final json = const JsonEncoder.withIndent('  ').convert(data.toJson());
     return saveSessionJson(
       path: path,
@@ -1165,14 +1434,18 @@ class CockpitController extends ChangeNotifier {
 
   /// Parses an exported transcript [json] and imports it as a new session.
   Future<SessionInfo?> importSessionFromJson(String json) async {
-    final client = _client;
-    if (client == null) return null;
+    if (_client == null) return null;
     try {
       final decoded = jsonDecode(json);
       final data = SessionTransferData.fromJson(asJsonMap(decoded));
-      final imported = await client.session.importSession(
-        info: data.info,
-        messages: data.messages,
+      final imported = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.session.importSession(
+            info: data.info,
+            messages: data.messages,
+            options: options,
+          ),
+        ),
       );
       await loadSessions();
       await openSession(imported);
@@ -1195,14 +1468,19 @@ class CockpitController extends ChangeNotifier {
 
   Future<void> loadPersistentTerminals() async {
     if (_disposed) return;
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     loadingPersistentTerminals = true;
     _notify();
     try {
-      persistentTerminals = await client.persistentPty.list(
-        sessionID: session.id,
+      persistentTerminals = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.persistentPty.list(
+            sessionID: session.id,
+            options: options,
+          ),
+          read: true,
+        ),
       );
       final selected = selectedPersistentID;
       if (selected != null &&
@@ -1221,18 +1499,22 @@ class CockpitController extends ChangeNotifier {
   }
 
   Future<void> createPersistentTerminal() async {
-    final client = _client;
     final session = activeSession;
-    if (client == null || session == null) return;
+    if (_client == null || session == null) return;
     try {
       final now = DateTime.now();
-      final info = await client.persistentPty.create(
-        sessionID: session.id,
-        title:
-            'shell ${now.hour.toString().padLeft(2, '0')}:'
-            '${now.minute.toString().padLeft(2, '0')}',
-        args: const [],
-        env: const {},
+      final info = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) => client.sdk.persistentPty.create(
+            sessionID: session.id,
+            title:
+                'shell ${now.hour.toString().padLeft(2, '0')}:'
+                '${now.minute.toString().padLeft(2, '0')}',
+            args: const [],
+            env: const {},
+            options: options,
+          ),
+        ),
       );
       persistentTerminals = [...persistentTerminals, info];
       _notify();
@@ -1256,15 +1538,19 @@ class CockpitController extends ChangeNotifier {
     selectedPersistentID = info.id;
     terminalVisible = true;
     _notify();
-    await session.attach(client, info);
+    await session.attach(client, _runtime, info);
     _notify();
   }
 
   Future<void> killPersistentTerminal(PersistentPtyInfo info) async {
-    final client = _client;
-    if (client == null) return;
+    if (_client == null) return;
     try {
-      await client.persistentPty.remove(ptyID: info.id);
+      await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) =>
+              client.sdk.persistentPty.remove(ptyID: info.id, options: options),
+        ),
+      );
     } on Object catch (error) {
       connectionError = describe(error);
     }
@@ -1279,12 +1565,17 @@ class CockpitController extends ChangeNotifier {
 
   /// Pulls the server-side screen snapshot into the attached terminal.
   Future<void> snapshotPersistentTerminal() async {
-    final client = _client;
     final id = selectedPersistentID;
     final session = persistentTerminalSession;
-    if (client == null || id == null || session == null) return;
+    if (_client == null || id == null || session == null) return;
     try {
-      final snapshot = await client.persistentPty.snapshot(ptyID: id);
+      final snapshot = await _runtime.runOpenCode(
+        _sdkCall(
+          (client, options) =>
+              client.sdk.persistentPty.snapshot(ptyID: id, options: options),
+          read: true,
+        ),
+      );
       session.applySnapshotText(
         '\r\n\x1b[2m[snapshot]\x1b[0m\r\n${snapshot.text}\r\n',
       );
@@ -1311,7 +1602,12 @@ class CockpitController extends ChangeNotifier {
     }
     if (session.status == TerminalStatus.idle ||
         session.status == TerminalStatus.failed) {
-      await session.start(client, location: activeLocation, title: 'cockpit');
+      await session.start(
+        client,
+        _runtime,
+        location: activeLocation,
+        title: 'cockpit',
+      );
       _notify();
     }
   }
@@ -1765,19 +2061,38 @@ class CockpitController extends ChangeNotifier {
     _events = null;
     final client = _client;
     _client = null;
+    final terminal = this.terminal;
+    this.terminal = null;
+    final persistent = persistentTerminalSession;
+    persistentTerminalSession = null;
     _reconnectTimer?.cancel();
     _sessionsDebounce?.cancel();
     _messagesDebounce?.cancel();
     _inboxDebounce?.cancel();
     _formsDebounce?.cancel();
     _fileSearchDebounce?.cancel();
-    unawaited(events?.cancel());
-    unawaited(terminal?.dispose());
-    unawaited(persistentTerminalSession?.detach());
-    client?.close();
+    // Stop the shared subscription and the PTY fibers (releasing their
+    // sockets and removing the PTY) before the client and the runtime go down.
+    unawaited(_releaseAll(events, terminal, persistent, client));
     composer.dispose();
     composerFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _releaseAll(
+    StreamSubscription<OpenCodeEvent>? events,
+    TerminalSession? terminal,
+    PersistentTerminalSession? persistent,
+    EffectOpenCodeClient? client,
+  ) async {
+    try {
+      await events?.cancel();
+      await persistent?.detach();
+      await terminal?.dispose();
+    } finally {
+      client?.close();
+      await _runtime.shutdown();
+    }
   }
 }
 
