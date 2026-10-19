@@ -7,13 +7,16 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.13.0
 
 dependencies:
+  effect_core: ^0.0.2
   genkit: ^1.0.0
   http: ^1.6.0
   logging: ^1.3.0
   meta: ^1.17.0
+  opencode_effect:
+    path: ../opencode_effect
   schemantic: ^1.0.0
   opencode_sdk_dart:
     path: ../

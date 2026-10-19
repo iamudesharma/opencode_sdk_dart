@@ -31,7 +31,7 @@ Future<void> main() async {
 
 | Handle | Backed by | Use it for |
 | --- | --- | --- |
-| `openCode()` | `opencode_sdk_dart`'s `OpenCodeClient` (local service discovery, model catalog, sessions, events) | models served by a local or remote OpenCode V2 server |
+| `openCode()` | `opencode_sdk_dart`'s `OpenCodeClient` (local service discovery, model catalog, sessions, events), run through the `opencode_effect` bridge | models served by a local or remote OpenCode V2 server |
 | `openAI(...)` | a direct HTTP + SSE client that reuses `opencode_sdk_dart`'s SSE decoder and cancellation primitives | OpenAI and any OpenAI-compatible host: chat, embeddings, speech, and transcription, with Genkit-owned tool calling and structured outputs |
 
 Both handles are offline-first: constructing the plugin neither requires an API
@@ -73,8 +73,16 @@ How the bridge maps Genkit onto the server:
 | structured output | the output schema is appended to the prompt as JSON instructions; Genkit parses the response, so `outputSchema` works on any server model |
 | media inputs | media parts become prompt file attachments (`files`), so the request runs through a session |
 | persistent sessions | `OpenCodeModelOptions(sessionID: ...)` reuses a server session (model and agent are switched, the session is kept) instead of an ephemeral one that is deleted afterwards |
-| cancellation | Genkit's `CancellationToken` bridged to the SDK's, tearing down requests |
+| cancellation | Genkit's `CancellationToken` interrupts the running effect (a fiber on the plugin's runtime), which cancels the SDK's per-run token and tears the request down; cancelling a streamed turn stops waiting and still removes an ephemeral session |
 | sampling parameters | the server's own model configuration |
+
+Every server call runs as an effect on one long-lived `Runtime` owned by the
+plugin (`opencode_effect`): reads such as model discovery retry transient
+failures, while prompts, session writes, and the websearch tool are never
+retried. The runtime lives exactly as long as the plugin object — Genkit has no
+plugin-close hook — and `OpenCodePlugin.close()` is available for deterministic
+teardown (it also closes a client the plugin built; a caller-provided client
+stays the caller's to close).
 
 Bridge features in code:
 

@@ -4,8 +4,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:effect_core/effect_core.dart' as effect;
 import 'package:genkit/plugin.dart';
 import 'package:logging/logging.dart';
+import 'package:opencode_effect/opencode_effect.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' as sdk;
 
 import 'errors.dart';
@@ -29,9 +31,9 @@ final class OpenCodePluginHandle {
 
   /// Creates a plugin that serves models from an OpenCode server.
   ///
-  /// With no [client] and no [baseUrl], the plugin connects to the local
-  /// background service with [sdk.OpenCodeClient.connectLocal] on first use —
-  /// no configuration or API key required.
+  /// With no [client] and no [baseUrl], the plugin discovers (or starts) the
+  /// local background service on first use — no configuration or API key
+  /// required.
   OpenCodePlugin call({
     String name = 'opencode',
     sdk.OpenCodeClient? client,
@@ -72,6 +74,13 @@ const OpenCodePluginHandle openCode = OpenCodePluginHandle();
 /// through the stateless generate endpoint, streaming through a session plus
 /// the shared event stream).
 ///
+/// Internally every server call runs as an effect on an [effect.Runtime] owned
+/// by the plugin (via `opencode_effect`), so reads retry, prompts never do,
+/// and a cancelled Genkit operation interrupts the in-flight request.
+/// `GenkitPlugin` has no close hook, so that runtime lives exactly as long as
+/// the plugin object; [OpenCodePlugin.close] is available for deterministic
+/// teardown.
+///
 /// Supported on top of the bridge:
 /// * structured outputs — the output schema is appended to the prompt as JSON
 ///   instructions and Genkit parses the response, so
@@ -102,6 +111,9 @@ final class OpenCodePlugin extends GenkitPlugin {
   final String name;
 
   /// A pre-built client. When null the plugin builds one on first use.
+  ///
+  /// A caller-provided client is wrapped, never adopted: the plugin does not
+  /// close it.
   final sdk.OpenCodeClient? client;
 
   /// Base URL of a remote server. Ignored when [client] is given.
@@ -124,24 +136,39 @@ final class OpenCodePlugin extends GenkitPlugin {
   /// caller-defined tool of the same name.
   final bool webSearchTool;
 
-  sdk.OpenCodeClient? _resolved;
-  Future<sdk.OpenCodeClient>? _connecting;
-  Future<List<sdk.ModelInfo>>? _models;
+  /// The plugin's effect runtime: one instance per plugin, constructed with
+  /// the plugin (no I/O) and living as long as the plugin object — Genkit has
+  /// no plugin-close hook, so see [close] for deterministic teardown.
+  final effect.Runtime<effect.Unit> _runtime = effect.Runtime(
+    effect.Unit.value,
+  );
 
-  Future<sdk.OpenCodeClient> _client() {
-    final existing = client ?? _resolved;
+  EffectOpenCodeClient? _bridged;
+  Future<EffectOpenCodeClient>? _connecting;
+  Future<List<sdk.ModelInfo>>? _models;
+  bool _ownsClient = false;
+
+  Future<EffectOpenCodeClient> _client() {
+    final given = client;
+    if (given != null) {
+      // A caller-provided client is wrapped, not adopted; its owner keeps
+      // closing it.
+      return Future.value(_bridged ??= EffectOpenCodeClient(given));
+    }
+    final existing = _bridged;
     if (existing != null) return Future.value(existing);
     return _connecting ??= _connect();
   }
 
-  Future<sdk.OpenCodeClient> _connect() async {
-    if (baseUrl != null) {
-      final created = sdk.OpenCodeClient.make(
-        baseUrl: Uri.parse(baseUrl!),
-        headers: headers,
+  Future<EffectOpenCodeClient> _connect() async {
+    final configured = baseUrl;
+    if (configured != null) {
+      return _adopt(
+        sdk.OpenCodeClient.make(
+          baseUrl: Uri.parse(configured),
+          headers: headers,
+        ),
       );
-      _resolved = created;
-      return created;
     }
     if (!discover) {
       throw GenkitException(
@@ -149,17 +176,52 @@ final class OpenCodePlugin extends GenkitPlugin {
         status: StatusCode.failedPrecondition,
       );
     }
-    final created = await sdk.OpenCodeClient.connectLocal();
-    _resolved = created;
-    return created;
+    try {
+      // Local service management runs through the bridge, so environment
+      // failures surface as the typed `OpenCodeServiceError`.
+      final sdk.ServiceEndpoint? discovered = await _runtime.runOpenCode(
+        discoverOpenCodeService<effect.Unit>(),
+      );
+      final endpoint =
+          discovered ??
+          await _runtime.runOpenCode<sdk.ServiceEndpoint>(
+            ensureOpenCodeService<effect.Unit>(),
+          );
+      return _adopt(
+        sdk.OpenCodeClient(
+          baseUrl: endpoint.url,
+          headers: sdk.OpenCodeService.headers(endpoint),
+        ),
+      );
+    } on OpenCodeError catch (error, stackTrace) {
+      throw openCodeError(error, stackTrace: stackTrace);
+    }
+  }
+
+  /// Wraps a client the plugin created and has to close itself.
+  EffectOpenCodeClient _adopt(sdk.OpenCodeClient created) {
+    // Retries live in effects now (`withReadRetry` on reads); the SDK
+    // transport's own policy stays off so writes are never replayed by the
+    // HTTP layer.
+    created.transport.retry = null;
+    _ownsClient = true;
+    return _bridged = EffectOpenCodeClient(created);
   }
 
   Future<List<sdk.ModelInfo>> _catalog({bool refresh = false}) {
     if (refresh) _models = null;
     return _models ??= () async {
       final client = await _client();
-      final response = await client.model.list();
-      return response.data;
+      return _run<List<sdk.ModelInfo>>(
+        client
+            .call<sdk.LocatedResponse<List<sdk.ModelInfo>>, effect.Unit>(
+              (options) => client.sdk.model.list(options: options),
+            )
+            // Read: transient transport and 5xx/429 failures are retried by
+            // the effect schedule (three attempts).
+            .withReadRetry()
+            .map((response) => response.data),
+      );
     }();
   }
 
@@ -178,6 +240,33 @@ final class OpenCodePlugin extends GenkitPlugin {
       if (model.modelID == modelName) return model;
     }
     return null;
+  }
+
+  /// Runs [program] on the plugin runtime, tying Genkit's [cancel] token to the
+  /// fiber: cancelling it interrupts the fiber, which makes the bridge cancel
+  /// its per-run SDK token and tear the in-flight request down.
+  ///
+  /// Expected failures are converted to the plugin's [GenkitException]
+  /// boundary here; interruption surfaces as `CANCELLED`.
+  Future<T> _run<T>(
+    effect.Effect<T, OpenCodeError, effect.Unit> program, {
+    CancellationToken? cancel,
+  }) async {
+    final fiber = _runtime.fork(program);
+    void Function()? detach;
+    if (cancel != null) {
+      if (cancel.isCancelled) {
+        fiber.interrupt();
+      } else {
+        detach = cancel.onCancel(fiber.interrupt);
+      }
+    }
+    final exit = await fiber.awaitExit();
+    detach?.call();
+    return switch (exit) {
+      effect.Success(:final value) => value,
+      effect.Failure(:final cause) => throw openCodeCauseError(cause),
+    };
   }
 
   // Plugin lifecycle --------------------------------------------------------
@@ -207,6 +296,23 @@ final class OpenCodePlugin extends GenkitPlugin {
   AnyAction? resolve(ActionType actionType, String name) {
     if (actionType != ActionType.model) return null;
     return _model(name);
+  }
+
+  /// Shuts the plugin's effect runtime down (interrupting in-flight work) and
+  /// closes the client when the plugin built it; caller-provided clients stay
+  /// the caller's to close.
+  ///
+  /// Genkit has no plugin-close hook, so unless the owner calls this, the
+  /// runtime (and any client the plugin built) lives as long as the plugin
+  /// object. Closing is terminal: the plugin cannot serve requests afterwards.
+  Future<void> close() async {
+    await _runtime.shutdown();
+    if (_ownsClient) {
+      _bridged?.close();
+      _bridged = null;
+      _connecting = null;
+      _ownsClient = false;
+    }
   }
 
   AnyActionMetadata _metadataFor(sdk.ModelInfo model) {
@@ -275,12 +381,17 @@ final class OpenCodePlugin extends GenkitPlugin {
       outputSchema: WebSearchToolOutput.$schema,
       fn: (input, ctx) async {
         final client = await _client();
-        final response = await client.websearch.query(
-          query: input.query,
-          providerID: input.providerID == null
-              ? null
-              : sdk.WebSearchID(input.providerID!),
-          options: sdk.RequestOptions(cancelToken: _bridgeCancel(ctx.cancel)),
+        final response = await _run(
+          client.call(
+            (options) => client.sdk.websearch.query(
+              query: input.query,
+              providerID: input.providerID == null
+                  ? null
+                  : sdk.WebSearchID(input.providerID!),
+              options: options,
+            ),
+          ),
+          cancel: ctx.cancel,
         );
         final data = response.data;
         return ToolResult.response(
@@ -382,10 +493,15 @@ final class OpenCodePlugin extends GenkitPlugin {
     required ActionFnArg<ModelResponseChunk, ModelRequest, void> ctx,
   }) async {
     final client = await _client();
-    final result = await client.generate.text(
-      prompt: prompt,
-      model: modelRef,
-      options: sdk.RequestOptions(cancelToken: _bridgeCancel(ctx.cancel)),
+    final result = await _run(
+      client.call(
+        (options) => client.sdk.generate.text(
+          prompt: prompt,
+          model: modelRef,
+          options: options,
+        ),
+      ),
+      cancel: ctx.cancel,
     );
     final text = result.data.text;
     return ModelResponse(
@@ -410,8 +526,6 @@ final class OpenCodePlugin extends GenkitPlugin {
     required DateTime started,
   }) async {
     final client = await _client();
-    final cancel = _bridgeCancel(ctx.cancel);
-    final requestOptions = sdk.RequestOptions(cancelToken: cancel);
 
     sdk.SessionInfo? createdSession;
     final sdk.SessionID sessionID;
@@ -420,65 +534,84 @@ final class OpenCodePlugin extends GenkitPlugin {
       // Reuse the server session the caller named: switch it to the model
       // (and agent) this request asked for, and leave it in place.
       sessionID = sdk.SessionID(reuseID);
-      await client.session.switchModel(
-        sessionID: sessionID,
-        model: modelRef,
-        options: requestOptions,
+      await _run(
+        client.call(
+          (o) => client.sdk.session.switchModel(
+            sessionID: sessionID,
+            model: modelRef,
+            options: o,
+          ),
+        ),
+        cancel: ctx.cancel,
       );
-      if (options.agent != null) {
-        await client.session.switchAgent(
-          sessionID: sessionID,
-          agent: sdk.AgentID(options.agent!),
-          options: requestOptions,
+      final agent = options.agent;
+      if (agent != null) {
+        await _run(
+          client.call(
+            (o) => client.sdk.session.switchAgent(
+              sessionID: sessionID,
+              agent: sdk.AgentID(agent),
+              options: o,
+            ),
+          ),
+          cancel: ctx.cancel,
         );
       }
     } else {
-      final created = await client.session.create(
-        title: 'genkit generate',
-        model: modelRef,
-        agent: options.agent == null ? null : sdk.AgentID(options.agent!),
-        options: requestOptions,
+      final agent = options.agent;
+      final created = await _run(
+        client.call(
+          (o) => client.sdk.session.create(
+            title: 'genkit generate',
+            model: modelRef,
+            agent: agent == null ? null : sdk.AgentID(agent),
+            options: o,
+          ),
+        ),
+        cancel: ctx.cancel,
       );
       createdSession = created;
       sessionID = created.id;
     }
 
     try {
-      // The SDK runs the turn: it streams deltas from the shared event
+      // The bridge runs the turn: the SDK streams deltas from the shared event
       // connection, falls back to `session.wait` polling when the live-only
       // stream drops, and reconciles the final text with the server's own
-      // record of the message.
-      final turn = client.streamPrompt(
-        sessionID: sessionID,
-        text: prompt,
-        files: attachments.isEmpty ? null : attachments,
-        metadata: options.metadata,
-        options: requestOptions,
+      // record of the message. One run sends exactly one prompt (a write —
+      // never retried); interrupting the fiber stops waiting, not generation.
+      final turnResult = await _run(
+        client.runTurn(
+          sessionID: sessionID,
+          text: prompt,
+          files: attachments.isEmpty ? null : attachments,
+          metadata: options.metadata,
+          onEvent: (event) {
+            switch (event) {
+              case sdk.SessionTurnTextDelta(:final delta):
+                ctx.sendChunk(
+                  ModelResponseChunk(
+                    role: Role.model,
+                    index: 0,
+                    content: [TextPart(text: delta)],
+                  ),
+                );
+              case sdk.SessionTurnReasoningDelta(:final delta):
+                ctx.sendChunk(
+                  ModelResponseChunk(
+                    role: Role.model,
+                    index: 0,
+                    content: [ReasoningPart(reasoning: delta)],
+                  ),
+                );
+              case sdk.SessionTurnStepUsage():
+              case sdk.SessionTurnCompleted():
+                break;
+            }
+          },
+        ),
+        cancel: ctx.cancel,
       );
-      await for (final event in turn) {
-        switch (event) {
-          case sdk.SessionTurnTextDelta(:final delta):
-            ctx.sendChunk(
-              ModelResponseChunk(
-                role: Role.model,
-                index: 0,
-                content: [TextPart(text: delta)],
-              ),
-            );
-          case sdk.SessionTurnReasoningDelta(:final delta):
-            ctx.sendChunk(
-              ModelResponseChunk(
-                role: Role.model,
-                index: 0,
-                content: [ReasoningPart(reasoning: delta)],
-              ),
-            );
-          case sdk.SessionTurnStepUsage():
-          case sdk.SessionTurnCompleted():
-            break;
-        }
-      }
-      final turnResult = await turn.result;
       ctx.cancel?.throwIfCancelled();
 
       final turnUsage = turnResult.usage;
@@ -512,12 +645,17 @@ final class OpenCodePlugin extends GenkitPlugin {
     } catch (error, stackTrace) {
       throw openCodeError(error, stackTrace: stackTrace);
     } finally {
+      // Cleanup is deliberately not tied to the caller's cancel token: an
+      // ephemeral session must not leak when the caller cancels or the turn
+      // fails.
       final created = createdSession;
       if (created != null) {
         try {
-          await client.session.remove(
-            sessionID: created.id,
-            options: const sdk.RequestOptions(),
+          await _run(
+            client.call(
+              (o) =>
+                  client.sdk.session.remove(sessionID: created.id, options: o),
+            ),
           );
         } catch (error) {
           _logger.fine('Failed to remove the ephemeral session: $error');
@@ -584,17 +722,6 @@ final class OpenCodePlugin extends GenkitPlugin {
       }
     }
     return result;
-  }
-
-  static sdk.CancellationToken? _bridgeCancel(CancellationToken? cancel) {
-    if (cancel == null) return null;
-    final token = sdk.CancellationToken();
-    if (cancel.isCancelled) {
-      token.cancel();
-    } else {
-      cancel.onCancel(token.cancel);
-    }
-    return token;
   }
 
   static double _elapsedMs(DateTime started) =>

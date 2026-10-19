@@ -65,6 +65,19 @@ final class FakeOpenCodeHost {
   /// fallback keeps waiting.
   bool assistantMessageCompleted = true;
 
+  /// Optional hook awaited before a request is handled.
+  ///
+  /// Tests use it to hold a response until they have set something up (for
+  /// example cancelling the caller's token while the request is in flight).
+  Future<void> Function(http.BaseRequest request)? hold;
+
+  /// Optional failure injection: when it returns a status, the request answers
+  /// that status with `{"error": {"message": [failMessage]}}`.
+  int? Function(http.BaseRequest request)? failRequest;
+
+  /// Message carried by an injected failure response.
+  String failMessage = 'boom';
+
   final List<http.BaseRequest> requests = [];
   final List<Map<String, dynamic>> bodies = [];
   final List<String> removedSessions = [];
@@ -82,6 +95,13 @@ final class FakeOpenCodeHost {
           ? <String, dynamic>{}
           : (jsonDecode(utf8.decode(bodyBytes)) as Map).cast<String, dynamic>(),
     );
+    final failure = failRequest?.call(request);
+    if (failure != null) {
+      return _json(failure, {
+        'error': {'message': failMessage},
+      });
+    }
+    await hold?.call(request);
     final path = request.url.path;
     final method = request.method;
 

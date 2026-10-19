@@ -3,7 +3,9 @@
 
 import 'dart:convert';
 
+import 'package:effect_core/effect_core.dart' as effect;
 import 'package:genkit/plugin.dart';
+import 'package:opencode_effect/opencode_effect.dart' as bridge;
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' as sdk;
 
 /// Maps an HTTP error response from a Chat Completions endpoint to a
@@ -46,14 +48,23 @@ GenkitException chatTransportError(
   );
 }
 
-/// Maps an error thrown by [sdk.OpenCodeClient] (or friends) to a
+/// Maps an error thrown at the plugin's OpenCode boundary to a
 /// [GenkitException].
 ///
-/// The OpenCode SDK surfaces provider failures as `OpenCodeApiException`
-/// subclasses carrying the HTTP status; anything else is treated as a
-/// transport failure.
+/// Internally the plugin runs through the `opencode_effect` bridge, so errors
+/// arrive as the typed [bridge.OpenCodeError] family (or an
+/// [effect.EffectException] from interruption/defects). Both unwrap to the same
+/// [GenkitException]s the plugin produced when it called the SDK directly: the
+/// original SDK exception stays in `cause` and API failures keep their HTTP
+/// status.
 GenkitException openCodeError(Object error, {StackTrace? stackTrace}) {
   if (error is GenkitException) return error;
+  if (error is bridge.OpenCodeError) {
+    return _fromBridgeError(error, stackTrace: stackTrace);
+  }
+  if (error is effect.EffectException<bridge.OpenCodeError>) {
+    return openCodeCauseError(error.cause, stackTrace: stackTrace);
+  }
   if (error is sdk.OpenCodeApiException) {
     final status = error.statusCode;
     return GenkitException(
@@ -99,6 +110,93 @@ GenkitException openCodeError(Object error, {StackTrace? stackTrace}) {
     stackTrace: stackTrace,
   );
 }
+
+/// Maps an effect [cause] (the outcome of a run that did not succeed) to the
+/// boundary [GenkitException].
+///
+/// Interruption is a cooperative cancel from the caller's token, so it maps to
+/// `CANCELLED`; defects follow the legacy "everything at the boundary is a
+/// [GenkitException]" contract.
+GenkitException openCodeCauseError(
+  effect.Cause<bridge.OpenCodeError> cause, {
+  StackTrace? stackTrace,
+}) => switch (cause) {
+  effect.Expected(:final error) => openCodeError(error, stackTrace: stackTrace),
+  effect.Interrupted() => GenkitException(
+    'The OpenCode request was cancelled.',
+    status: StatusCode.cancelled,
+    stackTrace: stackTrace,
+  ),
+  effect.Defect(:final error, stackTrace: final defectTrace) => openCodeError(
+    error,
+    stackTrace: defectTrace,
+  ),
+  effect.Sequential(:final first) => openCodeCauseError(
+    first,
+    stackTrace: stackTrace,
+  ),
+};
+
+GenkitException _fromBridgeError(
+  bridge.OpenCodeError error, {
+  StackTrace? stackTrace,
+}) => switch (error) {
+  final bridge.OpenCodeApiError api => GenkitException(
+    api.message,
+    status: api.statusCode == null
+        ? StatusCode.unknown
+        : StatusCode.fromHttpStatus(api.statusCode!),
+    // Keep the decoded SDK exception as the cause, as the direct-SDK plugin
+    // did, so callers inspecting `cause` keep seeing `SessionNotFoundError`
+    // and friends.
+    cause: api.cause,
+    stackTrace: stackTrace,
+  ),
+  final bridge.OpenCodeCallCancelled cancelled => GenkitException(
+    cancelled.message,
+    status: StatusCode.cancelled,
+    cause: cancelled.cause,
+    stackTrace: stackTrace,
+  ),
+  final bridge.OpenCodeExecutionFailed failed => GenkitException(
+    failed.message,
+    status: StatusCode.internal,
+    cause: failed.cause,
+    stackTrace: stackTrace,
+  ),
+  final bridge.OpenCodeTransportError transport => _bridgeUnavailable(
+    transport.cause,
+    stackTrace,
+  ),
+  final bridge.OpenCodeMalformedResponseError malformed => _bridgeUnavailable(
+    malformed.cause,
+    stackTrace,
+  ),
+  final bridge.OpenCodeDecodeError decode => _bridgeUnavailable(
+    decode.cause,
+    stackTrace,
+  ),
+  final bridge.OpenCodeStreamError stream => _bridgeUnavailable(
+    stream.cause,
+    stackTrace,
+  ),
+  final bridge.OpenCodeServiceError service => GenkitException(
+    service.message,
+    status: StatusCode.unavailable,
+    cause: service.cause ?? service,
+    stackTrace: stackTrace,
+  ),
+};
+
+/// The shared mapping for transport-shaped bridge failures: `UNAVAILABLE`
+/// with the original SDK exception as both the message tail and the cause.
+GenkitException _bridgeUnavailable(Object cause, StackTrace? stackTrace) =>
+    GenkitException(
+      'OpenCode request failed: $cause',
+      status: StatusCode.unavailable,
+      cause: cause,
+      stackTrace: stackTrace,
+    );
 
 String? _extractMessage(String body) {
   if (body.isEmpty) return null;

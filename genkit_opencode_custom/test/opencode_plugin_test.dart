@@ -1,6 +1,8 @@
 // Copyright 2026 The genkit_opencode_custom authors.
 // SPDX-License-Identifier: MIT
 
+import 'dart:async';
+
 import 'package:genkit/genkit.dart';
 import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' as sdk;
@@ -38,18 +40,27 @@ void main() {
   group('with a fake server', () {
     late FakeOpenCodeHost host;
     late sdk.OpenCodeClient client;
+    late OpenCodePlugin plugin;
     late Genkit ai;
 
     setUp(() {
       host = FakeOpenCodeHost();
       // `clientFactory` matters: requests carrying a cancellation token use a
-      // dedicated client, which must also be the fake one in tests.
+      // dedicated client, which must also be the fake one in tests. The
+      // plugin's bridge binds a fresh token to every call.
       client = sdk.OpenCodeClient(
         baseUrl: Uri.parse('http://fake.opencode'),
         httpClient: host.client,
         clientFactory: () => host.client,
       );
-      ai = Genkit(plugins: [openCode(client: client)]);
+      plugin = openCode(client: client);
+      ai = Genkit(plugins: [plugin]);
+    });
+
+    tearDown(() async {
+      // The plugin owns its effect runtime; shutting it down here keeps test
+      // teardown deterministic. The caller-provided client is not closed.
+      await plugin.close();
     });
 
     test('list reports enabled server models with capabilities', () async {
@@ -375,5 +386,142 @@ void main() {
       final body = host.bodies[host.requests.indexOf(search)];
       expect(body['query'], 'dart');
     });
+
+    group('error surfacing', () {
+      test('maps server failures to Genkit statuses', () async {
+        host.failRequest = (request) =>
+            request.url.path == '/api/experimental/generate' ? 500 : null;
+
+        final result = await ai.generate<String, OpenCodeModelOptions>(
+          model: openCode.model('kimi-k2.6'),
+          prompt: 'Say hi',
+        );
+
+        expect(result.finishReason, FinishReason.failed);
+        expect(result.error!.status, StatusCode.internal.wireName);
+        // The SDK decodes an undeclared status as `OpenCodeStatusException`;
+        // the bridge error message is preserved.
+        expect(result.error!.message, contains('500'));
+      });
+
+      test('reads retry transient failures and succeed', () async {
+        var failures = 0;
+        host.failRequest = (request) {
+          if (request.url.path == '/api/model' && failures < 2) {
+            failures++;
+            return 503;
+          }
+          return null;
+        };
+
+        final actions = await openCode(client: client).list();
+
+        // Two retries after the first failed attempt (three attempts total).
+        expect(failures, 2);
+        expect(actions.map((action) => action.name), contains('kimi-k2.6'));
+      });
+
+      test('generation writes are never retried', () async {
+        var attempts = 0;
+        host.failRequest = (request) {
+          if (request.url.path == '/api/experimental/generate') {
+            attempts++;
+            return 503;
+          }
+          return null;
+        };
+
+        final result = await ai.generate<String, OpenCodeModelOptions>(
+          model: openCode.model('kimi-k2.6'),
+          prompt: 'Say hi',
+        );
+
+        // A timed-out prompt may already be admitted server-side; retrying it
+        // would run it twice.
+        expect(attempts, 1);
+        expect(result.finishReason, FinishReason.failed);
+        expect(result.error!.status, StatusCode.unavailable.wireName);
+      });
+    });
+
+    group('cancellation', () {
+      test('cancelling a generation interrupts the request', () async {
+        final gate = Completer<void>();
+        host.hold = (request) async {
+          if (request.url.path == '/api/experimental/generate') {
+            await gate.future;
+          }
+        };
+        final controller = CancellationController();
+
+        final pending = ai.generate<String, OpenCodeModelOptions>(
+          model: openCode.model('kimi-k2.6'),
+          prompt: 'Say hi',
+          cancel: controller.token,
+        );
+
+        await _waitUntil(
+          () => host.requests.any(
+            (request) => request.url.path == '/api/experimental/generate',
+          ),
+        );
+        controller.cancel();
+        gate.complete();
+
+        final result = await pending;
+        expect(result.finishReason, FinishReason.aborted);
+        expect(result.error, isNotNull);
+      });
+
+      test('cancelling a streamed turn cleans up the session', () async {
+        host.eventFrames = [
+          FakeOpenCodeHost.textDelta('ses_fake1', 'Hello'),
+          FakeOpenCodeHost.executionSucceeded('ses_fake1'),
+        ];
+        final gate = Completer<void>();
+        host.hold = (request) async {
+          if (RegExp(
+            r'^/api/session/[^/]+/prompt$',
+          ).hasMatch(request.url.path)) {
+            await gate.future;
+          }
+        };
+        final controller = CancellationController();
+
+        final stream = ai.generateStream<String, OpenCodeModelOptions>(
+          model: openCode.model('kimi-k2.6'),
+          prompt: 'Stream please',
+          cancel: controller.token,
+        );
+        final subscription = stream.listen((_) {});
+
+        await _waitUntil(
+          () => host.requests.any(
+            (request) => RegExp(
+              r'^/api/session/[^/]+/prompt$',
+            ).hasMatch(request.url.path),
+          ),
+        );
+        controller.cancel();
+        gate.complete();
+
+        final result = await stream.onResult;
+        await subscription.cancel();
+
+        // The cancel stops waiting for the turn and produces an aborted
+        // response; the ephemeral session is still removed.
+        expect(result.finishReason, FinishReason.aborted);
+        expect(host.removedSessions, ['ses_fake1']);
+      });
+    });
   });
+}
+
+/// Polls [condition] on the event loop until it holds.
+Future<void> _waitUntil(bool Function() condition) async {
+  for (var attempt = 0; attempt < 1000; attempt++) {
+    if (condition()) return;
+    await Future<void>.delayed(Duration.zero);
+  }
+  fail('Timed out waiting for the expected request.');
 }
