@@ -9,8 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  effect_core: ^0.0.2
   file_selector: ^1.0.2
   http: ^1.2.0
+  opencode_effect:
+    path: ../opencode_effect
   opencode_sdk_dart:
     path: ../
 

@@ -89,6 +89,9 @@ flutter test tool/live_chat_check.dart  # live end-to-end against a running serv
 - `test/event_reducer_test.dart` — the event → transcript reducer, driven by
   recorded server event payloads; also covers notification coalescing and the
   theme toggle.
+- `test/controller_effect_test.dart` — the controller over the effect bridge
+  with a scripted server: typed error surfacing, read retry / write parity,
+  event reconnect, and event-fiber cancellation.
 - `test/markdown_lite_test.dart` — the markdown-lite parser (headings, lists,
   quotes, rules, code blocks) and rendering (badges, copy button, caret).
 - `test/model_picker_test.dart` — the searchable model dialog: filtering
@@ -121,20 +124,28 @@ lib/
     markdown_lite.dart          markdown-lite parser and renderer
 ```
 
-The controller owns a single `OpenCodeClient`:
+The controller owns one `EffectOpenCodeClient` (from `opencode_effect`) over
+a single SDK client, and one effect `Runtime` for its lifetime:
 
 1. `connectLocal` connects to the `OPENCODE_BASE_URL` define when set, the
-   serving origin on the web, or the discovered local service; then reads
-   `server.info`, loads sessions/agents/models, enables the idempotent
-   GET/HEAD retry policy, and subscribes to `client.event.subscribe()`.
-2. Every event is reduced into transcript state: `session.step.started`
+   serving origin on the web, or the discovered local service
+   (`discoverOpenCodeService`/`ensureOpenCodeService`); then reads
+   `server.info`, loads sessions/agents/models, and subscribes to the shared
+   event stream through `client.events<Unit>().toNative(runtime)`.
+2. Calls are effect-bound (`client.call(...)`) and reads compose
+   `withReadRetry()` (transient statuses, 3 attempts); writes — prompt
+   admission, create/delete/rename, interrupt, permission replies — are never
+   retried.
+3. Every event is reduced into transcript state: `session.step.started`
    creates the assistant message, `session.text.delta` appends streamed text,
    `session.tool.*` drives tool cards, `session.execution.*` toggles the busy
    indicator and settles the transcript from the API.
-3. UI notifications are coalesced to at most one `notifyListeners()` per
+4. UI notifications are coalesced to at most one `notifyListeners()` per
    frame (~16 ms) so event bursts do not rebuild the transcript per event.
-4. Sending a prompt echoes the user message immediately, then refreshes from
+5. Sending a prompt echoes the user message immediately, then refreshes from
    the API once the server admits it.
+6. `dispose` closes the client and shuts the runtime down, stopping every
+   forked fiber.
 
 ## macOS notes
 

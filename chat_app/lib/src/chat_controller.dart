@@ -1,7 +1,10 @@
 import 'dart:async';
 
+import 'package:effect_core/effect_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
+import 'package:http/http.dart' as http;
+import 'package:opencode_effect/opencode_effect.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import 'chat_models.dart';
@@ -10,11 +13,22 @@ import 'chat_models.dart';
 enum ChatConnection { idle, connecting, connected, failed }
 
 /// Coordinates the OpenCode SDK, session state, and the live event stream.
+///
+/// OpenCode work runs through `opencode_effect`: a [Runtime] owns the forked
+/// fibers (reads, writes and the event consumption), and an
+/// [EffectOpenCodeClient] wraps the SDK client. Closing the client plus
+/// `Runtime.shutdown()` in [dispose] stops everything the controller started.
 class ChatController extends ChangeNotifier {
   /// Creates an unconnected controller; call [connect] to start.
-  ChatController();
+  ///
+  /// [clientFactory] is a test seam: when set, the SDK client created by
+  /// [connectTo]/[connectLocal] takes every dedicated HTTP client (each
+  /// effect-bound request plus the event connection) from it.
+  ChatController({this._clientFactory});
 
-  OpenCodeClient? _client;
+  final Runtime<Unit> _runtime = Runtime<Unit>(Unit.value);
+  final http.Client Function()? _clientFactory;
+  EffectOpenCodeClient? _client;
   StreamSubscription<OpenCodeEvent>? _events;
   Timer? _reconnectTimer;
   Timer? _sessionRefreshDebounce;
@@ -86,7 +100,8 @@ class ChatController extends ChangeNotifier {
         : ThemeMode.dark;
   }
 
-  OpenCodeClient? get client => _client;
+  /// The connected SDK client, or null while unconnected.
+  OpenCodeClient? get client => _client?.sdk;
 
   bool get isConnected => connection == ChatConnection.connected;
 
@@ -136,21 +151,27 @@ class ChatController extends ChangeNotifier {
     _notify();
     try {
       if (discover) {
-        final endpoint = await OpenCodeService.discover() ??
-            await OpenCodeService.ensure();
+        final endpoint = await _runtime.runOpenCode(_discoverOrStart());
         url = endpoint.url;
         headers = OpenCodeService.headers(endpoint);
       }
-      final client = OpenCodeClient(baseUrl: url!, headers: headers);
+      // Reads retry through `withReadRetry()` on the effect; the SDK's own
+      // transport retry stays off so an attempt is never retried twice.
+      final sdk = OpenCodeClient(
+        baseUrl: url!,
+        headers: headers,
+        clientFactory: _clientFactory,
+      );
+      sdk.transport.retry = null;
+      final client = EffectOpenCodeClient(sdk);
       _client = client;
-      // Retry transient failures on idempotent requests (GET/HEAD) only; a
-      // retried prompt could be admitted twice.
-      client.transport.retry = const RetryPolicy();
-      baseUrl = client.transport.baseUrl;
-      final info = await client.server.info();
+      baseUrl = sdk.transport.baseUrl;
+      final info = await _runtime.runOpenCode(
+        _read(client, (options) => client.sdk.server.info(options: options)),
+      );
       serverVersion = info.version;
       connection = ChatConnection.connected;
-      debugPrint('OpenCode Chat connected to ${client.transport.baseUrl} '
+      debugPrint('OpenCode Chat connected to ${client.sdk.transport.baseUrl} '
           '(v${info.version})');
       _notify();
       _listen();
@@ -165,41 +186,68 @@ class ChatController extends ChangeNotifier {
     }
   }
 
+  /// Discovers a running local service, starting one when none is registered.
+  Effect<ServiceEndpoint, OpenCodeError, Unit> _discoverOrStart() =>
+      discoverOpenCodeService<Unit>().flatMap(
+        (endpoint) => endpoint == null
+            ? ensureOpenCodeService<Unit>()
+            : Effect.succeed<ServiceEndpoint, OpenCodeError, Unit>(endpoint),
+      );
+
+  /// Binds a read and composes the standard read retry policy.
+  ///
+  /// Only for idempotent GETs; writes must never retry (a prompt that timed
+  /// out may already have been admitted).
+  Effect<A, OpenCodeError, Unit> _read<A>(
+    EffectOpenCodeClient client,
+    Future<A> Function(RequestOptions options) invoke,
+  ) => client.call<A, Unit>(invoke).withReadRetry();
+
   String _describe(Object error) {
     return switch (error) {
-      OpenCodeStatusException(:final message) => message,
-      OpenCodeTransportException(:final cause) =>
-        'Cannot reach the server ($cause)',
-      OpenCodeDecodeException(:final message) => 'Unexpected response: $message',
+      OpenCodeApiError(:final message) => message,
+      OpenCodeTransportError(:final reason) =>
+        'Cannot reach the server ($reason)',
+      OpenCodeDecodeError(:final message) => 'Unexpected response: $message',
+      OpenCodeMalformedResponseError(:final message) =>
+        'Unexpected response: $message',
+      OpenCodeServiceError(:final message) => message,
       _ => '$error',
     };
   }
 
   void _listen() {
     _events?.cancel();
-    _events = _client!.event.subscribe().listen(
-      handleEvent,
-      onError: (Object error, StackTrace stackTrace) {
-        if (_disposed) return;
-        connectionError = 'Event stream lost; reconnecting\u2026';
-        _notify();
-        _reconnectTimer?.cancel();
-        _reconnectTimer = Timer(const Duration(seconds: 2), () {
-          if (_disposed || !isConnected) return;
-          connectionError = null;
-          _notify();
-          _listen();
-        });
-      },
-      onDone: () {
-        if (_disposed || !isConnected) return;
-        _reconnectTimer?.cancel();
-        _reconnectTimer = Timer(const Duration(seconds: 2), () {
-          if (_disposed || !isConnected) return;
-          _listen();
-        });
-      },
-    );
+    final client = _client;
+    if (client == null) return;
+    // `toNative` runs the pull stream on its own fiber; cancelling the
+    // subscription interrupts that fiber and waits for its cleanup.
+    _events = client
+        .events<Unit>()
+        .toNative(_runtime)
+        .listen(
+          handleEvent,
+          onError: (Object error, StackTrace stackTrace) {
+            if (_disposed) return;
+            connectionError = 'Event stream lost; reconnecting\u2026';
+            _notify();
+            _reconnectTimer?.cancel();
+            _reconnectTimer = Timer(const Duration(seconds: 2), () {
+              if (_disposed || !isConnected) return;
+              connectionError = null;
+              _notify();
+              _listen();
+            });
+          },
+          onDone: () {
+            if (_disposed || !isConnected) return;
+            _reconnectTimer?.cancel();
+            _reconnectTimer = Timer(const Duration(seconds: 2), () {
+              if (_disposed || !isConnected) return;
+              _listen();
+            });
+          },
+        );
   }
 
   Future<void> _teardown() async {
@@ -228,9 +276,15 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     if (client == null || !isConnected) return;
     try {
-      final result = await client.session.list(
-        limit: '60',
-        order: SessionListOrder.desc,
+      final result = await _runtime.runOpenCode(
+        _read(
+          client,
+          (options) => client.sdk.session.list(
+            limit: '60',
+            order: SessionListOrder.desc,
+            options: options,
+          ),
+        ),
       );
       sessions = result.data;
       if (activeSession != null) {
@@ -254,13 +308,17 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     if (client == null) return;
     try {
-      final agentResult = await client.agent.list();
+      final agentResult = await _runtime.runOpenCode(
+        _read(client, (options) => client.sdk.agent.list(options: options)),
+      );
       agents = agentResult.data;
     } on Object {
       // Agent list is optional.
     }
     try {
-      final modelResult = await client.model.list();
+      final modelResult = await _runtime.runOpenCode(
+        _read(client, (options) => client.sdk.model.list(options: options)),
+      );
       models = modelResult.data.where((model) => model.enabled).toList()
         ..sort((a, b) => a.name.compareTo(b.name));
     } on Object {
@@ -291,9 +349,15 @@ class ChatController extends ChangeNotifier {
     loadingMessages = true;
     _notify();
     try {
-      final response = await client.session.message.list(
-        sessionID: session.id,
-        limit: '200',
+      final response = await _runtime.runOpenCode(
+        _read(
+          client,
+          (options) => client.sdk.session.message.list(
+            sessionID: session.id,
+            limit: '200',
+            options: options,
+          ),
+        ),
       );
       final loaded = <ChatMessage>[];
       for (final item in response.data) {
@@ -316,7 +380,10 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     if (client == null || !isConnected) return null;
     try {
-      final session = await client.session.create();
+      // A POST: the prompt state is created server-side, never retried.
+      final session = await _runtime.runOpenCode(
+        client.call((options) => client.sdk.session.create(options: options)),
+      );
       sessions = [session, ...sessions];
       _notify();
       await openSession(session);
@@ -333,7 +400,14 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     if (client == null) return;
     try {
-      await client.session.remove(sessionID: SessionID(sessionID));
+      await _runtime.runOpenCode(
+        client.call(
+          (options) => client.sdk.session.remove(
+            sessionID: SessionID(sessionID),
+            options: options,
+          ),
+        ),
+      );
     } on Object catch (error) {
       connectionError = _describe(error);
     }
@@ -353,7 +427,15 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     final session = activeSession;
     if (client == null || session == null) return;
-    await client.session.update(sessionID: session.id, title: title);
+    await _runtime.runOpenCode(
+      client.call(
+        (options) => client.sdk.session.update(
+          sessionID: session.id,
+          title: title,
+          options: options,
+        ),
+      ),
+    );
     activeSession = _copyWithTitle(session, title);
     sessions = [
       for (final candidate in sessions)
@@ -372,9 +454,14 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     final session = activeSession;
     if (client == null || session == null) return;
-    await client.session.switchAgent(
-      sessionID: session.id,
-      agent: AgentID(agent),
+    await _runtime.runOpenCode(
+      client.call(
+        (options) => client.sdk.session.switchAgent(
+          sessionID: session.id,
+          agent: AgentID(agent),
+          options: options,
+        ),
+      ),
     );
     await refreshSessions();
   }
@@ -384,7 +471,15 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     final session = activeSession;
     if (client == null || session == null) return;
-    await client.session.switchModel(sessionID: session.id, model: model);
+    await _runtime.runOpenCode(
+      client.call(
+        (options) => client.sdk.session.switchModel(
+          sessionID: session.id,
+          model: model,
+          options: options,
+        ),
+      ),
+    );
     await refreshSessions();
   }
 
@@ -428,10 +523,18 @@ class ChatController extends ChangeNotifier {
         _notify();
       }
       final sentSessionID = session.id;
-      await client.session.prompt(
-        sessionID: sentSessionID,
-        text: text,
-        files: files.isEmpty ? null : files,
+      // Prompt admission is a write: no retry, so a retried prompt can never
+      // be executed twice. Deltas arrive on the shared event subscription;
+      // the live transcript is settled from the API when the turn ends.
+      await _runtime.runOpenCode(
+        client.call(
+          (options) => client.sdk.session.prompt(
+            sessionID: sentSessionID,
+            text: text,
+            files: files.isEmpty ? null : files,
+            options: options,
+          ),
+        ),
       );
       // The server admits the message; refresh shortly to replace the echo
       // with the recorded user message. While the turn is still running the
@@ -460,7 +563,14 @@ class ChatController extends ChangeNotifier {
     final session = activeSession;
     if (client == null || session == null) return;
     try {
-      await client.session.interrupt(sessionID: session.id);
+      await _runtime.runOpenCode(
+        client.call(
+          (options) => client.sdk.session.interrupt(
+            sessionID: session.id,
+            options: options,
+          ),
+        ),
+      );
     } on Object catch (error) {
       connectionError = _describe(error);
       _notify();
@@ -475,10 +585,15 @@ class ChatController extends ChangeNotifier {
     final client = _client;
     if (client == null) return;
     try {
-      await client.permission.reply(
-        sessionID: request.sessionID,
-        requestID: request.id,
-        decision: decision,
+      await _runtime.runOpenCode(
+        client.call(
+          (options) => client.sdk.permission.reply(
+            sessionID: request.sessionID,
+            requestID: request.id,
+            decision: decision,
+            options: options,
+          ),
+        ),
       );
       pendingPermissions = [
         for (final candidate in pendingPermissions)
@@ -852,6 +967,9 @@ class ChatController extends ChangeNotifier {
     themeMode.dispose();
     unawaited(events?.cancel());
     client?.close();
+    // Stops every fiber the controller forked (reads, writes, the event
+    // consumption); the client is already closed, so in-flight requests abort.
+    unawaited(_runtime.shutdown());
     super.dispose();
   }
 }
