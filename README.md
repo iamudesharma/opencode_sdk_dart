@@ -15,6 +15,13 @@ management, agent/model switching, and permission prompts. The larger
 a session tree, files and git panels, session diffs, worktree management, a
 statistics dashboard, and real PTY terminals.
 
+A typed-effect adapter lives in [`opencode_effect/`](opencode_effect/README.md):
+the SDK stays a plain, generated, dependency-light client, while every
+operation can be bound as a lazy `Effect` on `effect_core` — one sealed error
+family, interruption that aborts in-flight requests, scoped client lifetime,
+pull streams for events and turns, and read-only retry schedules. All four
+consumer projects use it at their service/controller boundary.
+
 ## Highlights
 
 - **Typed resources** for all 29 API groups — `client.session`,
@@ -399,6 +406,8 @@ lib/
   src/session/                    # turn streaming + pagination helpers
   src/service/                    # local background service management
   src/generated/                  # models + 28 resources + client (generated)
+opencode_effect/                  # effect_core adapter: typed effects, layers,
+                                  #   pull streams, scoped client lifetime
 chat_app/                         # chat client: macOS + phone web
 opencode_cockpit/                 # workbench: macOS + phone web (projects, git, PTY)
 genkit_opencode_custom/           # Genkit Dart plugin: OpenCode server bridge

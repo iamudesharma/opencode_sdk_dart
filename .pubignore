@@ -1,5 +1,9 @@
 # The desktop clients are separate packages, not part of the published SDK.
 chat_app/
 opencode_cockpit/
+gym_coach/
+# The effect adapter and the Genkit plugin are separate packages too.
+opencode_effect/
+genkit_opencode_custom/
 # The pinned OpenAPI snapshot is only needed for regeneration.
 openapi/
