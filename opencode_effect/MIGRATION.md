@@ -193,6 +193,15 @@ effect and interrupt the fiber on close.
 
 ## Cancellation
 
+Every bridged call carries a per-run SDK token so interrupting a fiber aborts
+the in-flight HTTP request. The SDK implements that abort with a dedicated
+HTTP client per token-carrying request, so abortable calls set up a fresh
+connection instead of reusing the pooled one (≈0.2–0.3 ms per call on
+localhost; see `benchmark/overhead.dart`). For the interactive calls in these
+apps that cost is invisible; if a hot loop ever needs pooled connections more
+than abortability, bind that call without passing the options
+(`client.call((_) => client.sdk.<resource>.<method>(...))`) and note why.
+
 Replace ad-hoc token/subscription bookkeeping with fibers:
 
 ```dart

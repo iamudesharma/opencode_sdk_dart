@@ -177,3 +177,17 @@ dart analyze      # clean under the repository lint profile
 Tests cover error mapping, interruption/token wiring, read-only retry
 semantics, layer lifetime and memoization, event/SSE consumption, full turns
 and plugin RPC over a scripted `MockClient`.
+
+## Benchmarks
+
+```sh
+dart run benchmark/overhead.dart             # in-process, no network
+dart run benchmark/overhead.dart 300 --live  # GET /api/info, local service
+```
+
+The effect interpreter itself adds a couple of microseconds per call. In the
+live mode every bridged call carries a per-run cancellation token, so the SDK
+opens a dedicated HTTP client (and connection) per request — the price of
+aborting in-flight work when the fiber is interrupted. The benchmark's third
+row isolates that cost by calling the SDK without the token (shared pooled
+client); see `MIGRATION.md` for the trade-off.
