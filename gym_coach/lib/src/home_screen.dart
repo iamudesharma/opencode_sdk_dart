@@ -180,6 +180,9 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final message in _chatMessages) {
       message.dispose();
     }
+    // Only the service this screen created is owned here; an injected service
+    // belongs to whoever passed it in.
+    if (widget.service == null) _service.dispose();
     super.dispose();
   }
 

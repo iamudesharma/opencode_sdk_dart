@@ -132,13 +132,20 @@ flutter test
 (no network): typed/live generation, presets, macro calculator + bars, the
 narrow `NavigationBar` shell and tab switching, exercise completion, the rest
 timer, Ask Coach bubbles/stop/rebuild, and the history dialog/tab.
-`test/macros_test.dart` and `test/plan_store_test.dart` cover the calculator
-math and the file-backed store.
+`test/coach_service_test.dart` drives the real service against a scripted
+server: the shared session, turn streaming order and reconciliation,
+cancellation through the turn fiber, typed `OpenCodeError` surfacing, and
+"writes are never retried". `test/macros_test.dart` and
+`test/plan_store_test.dart` cover the calculator math and the file-backed
+store.
 
 ## How it plugs in
 
 The app contains no HTTP code and no OpenCode protocol code. Everything flows
-through the Genkit plugin. Live text mode streams:
+through the Genkit plugin or — for the chat turn and the shared session — the
+effect bridge (`opencode_effect`), which owns the SDK client, gives failures
+the typed `OpenCodeError` family, and cancels turns by interrupting a fiber.
+Live text mode streams:
 
 ```dart
 final ai = Genkit(plugins: [openCode(client: sharedClient)]);
@@ -167,13 +174,24 @@ final stream = ai.generateStream<WorkoutPlan, OpenCodeModelOptions>(
 );
 ```
 
-Ask Coach reuses the same client and session through the SDK's turn helper:
+Ask Coach reuses the same client and session through the bridge's turn helper,
+which sends exactly one prompt per run; the Stop button interrupts the fiber
+the turn runs on:
 
 ```dart
-final turn = client.streamPrompt(sessionID: SessionID(coachSessionID!), text: text);
-await for (final event in turn) { ... }               // deltas + reasoning
-final result = await turn.result;                     // reconciled final text
+final exit = await runtime.fork(
+  client.runTurn<Unit>(
+    sessionID: SessionID(coachSessionID!),
+    text: text,
+    onEvent: (event) { ... },                          // deltas + reasoning
+  ),
+).awaitExit();
+// Success -> CoachChatDone(result.text, usage: ...)
+// Interrupted / cancelled -> CoachChatDone('', cancelled: true)
 ```
+
+The service closes the shared client, shuts its runtime down and closes the
+plugin (`CoachService.dispose`) when the screen that created it goes away.
 
 The app disables the macOS App Sandbox for the same reason `chat_app` does:
 reading `~/.local/state/opencode/service.json` and spawning

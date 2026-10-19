@@ -3,9 +3,12 @@ library;
 
 import 'dart:async';
 
+import 'package:effect_core/effect_core.dart';
 import 'package:genkit/genkit.dart' hide CancellationToken;
 import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';
-import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
+import 'package:http/http.dart' as http;
+import 'package:opencode_effect/opencode_effect.dart';
+import 'package:opencode_sdk_dart/opencode_sdk_dart.dart' hide CancellationToken;
 
 import 'plan.dart';
 import 'plan_request.dart';
@@ -110,31 +113,68 @@ final class CoachChatDone extends CoachChatEvent {
 
 /// Drives the OpenCode-backed coach.
 ///
-/// One lazily created [OpenCodeClient] serves both the Genkit bridge (typed
-/// and live-text plans) and the persistent "Ask Coach" chat session:
+/// One lazily created [EffectOpenCodeClient] serves both the Genkit bridge
+/// (typed and live-text plans) and the persistent "Ask Coach" chat session:
 ///
 /// * `--dart-define=OPENCODE_BASE_URL=...` points at a remote/LAN server;
 /// * on the web the app's own origin is used (a LAN host can proxy `/`);
 /// * otherwise the local background service is discovered or started.
+///
+/// Everything this service calls itself runs as an effect on [_runtime]:
+/// failures surface as the typed [OpenCodeError] family, the "Ask Coach" turn
+/// is a fiber whose interruption is the stop button, and closing the service
+/// closes the client and shuts the runtime down. The Genkit boundary keeps its
+/// `Future`/`Stream` shape and receives the same raw SDK client as before
+/// (`client.sdk`), so the plugin's contract is unchanged.
 class CoachService {
-  CoachService();
+  /// Creates a service.
+  ///
+  /// [baseUrl] and [clientFactory] exist for tests: they pin the server
+  /// endpoint and replace the SDK's HTTP transport (including the dedicated
+  /// clients the event stream opens). The app passes neither, so it resolves
+  /// its endpoint and lets the SDK create its own clients.
+  CoachService({Uri? baseUrl, http.Client Function()? clientFactory})
+    : _testBaseUrl = baseUrl,
+      _transportFactory = clientFactory;
 
-  OpenCodeClient? _client;
-  Future<OpenCodeClient>? _connecting;
+  final Uri? _testBaseUrl;
+  final http.Client Function()? _transportFactory;
+
+  /// The effect runtime that owns every operation this service starts.
+  final Runtime<Unit> _runtime = Runtime<Unit>(Unit.value);
+
+  EffectOpenCodeClient? _client;
+  Future<EffectOpenCodeClient>? _connecting;
   Genkit? _genkit;
   OpenCodePlugin? _plugin;
   String? _coachSessionID;
   Future<String>? _creatingSession;
   CancellationController? _active;
-  CancellationToken? _chatCancel;
+  Fiber<SessionTurnResult, OpenCodeError>? _chatFiber;
+  bool _disposed = false;
 
   /// The shared server session, once a plan or chat turn has created it.
   String? get coachSessionID => _coachSessionID;
 
+  /// Releases the shared client and stops the fibers this service started.
+  ///
+  /// Safe to call more than once. The screen that created the service calls
+  /// it when it is disposed; an injected service is owned by its creator.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    // The plugin owns its own effect runtime: stop its in-flight work, then
+    // release the shared client both layers use. (The plugin wraps the client
+    // without adopting it, so closing it stays this service's job.)
+    unawaited(_plugin?.close());
+    _client?.close();
+    unawaited(_runtime.shutdown());
+  }
+
   // Client + Genkit wiring ---------------------------------------------------
 
   /// Resolves the one client this service uses, creating it on first use.
-  Future<OpenCodeClient> _ensureClient() {
+  Future<EffectOpenCodeClient> _ensureClient() {
     final existing = _client;
     if (existing != null) return Future.value(existing);
     final pending = _connecting;
@@ -148,25 +188,56 @@ class CoachService {
     return future;
   }
 
-  Future<OpenCodeClient> _connect() async {
-    final OpenCodeClient client;
-    if (_baseUrlOverride.isNotEmpty) {
-      client = OpenCodeClient.make(baseUrl: Uri.parse(_baseUrlOverride));
+  Future<EffectOpenCodeClient> _connect() async {
+    final EffectOpenCodeClient client;
+    final override = _testBaseUrl;
+    if (override != null) {
+      client = _clientFor(override);
+    } else if (_baseUrlOverride.isNotEmpty) {
+      client = _clientFor(Uri.parse(_baseUrlOverride));
     } else if (_kIsWeb) {
-      client = OpenCodeClient.make(baseUrl: Uri.parse(Uri.base.origin));
+      // Local service discovery is unsupported on the web: the app talks to
+      // its own origin and a LAN host proxies `/`.
+      client = _clientFor(Uri.parse(Uri.base.origin));
     } else {
-      client = await OpenCodeClient.connectLocal();
+      // Discover the local background service, starting one when none is
+      // running. This mirrors `OpenCodeClient.connectLocal`, with discovery
+      // and start running as typed effects.
+      final endpoint = await _runtime.runOpenCode(
+        discoverOpenCodeService<Unit>().flatMap(
+          (endpoint) => endpoint == null
+              ? ensureOpenCodeService<Unit>()
+              : Effect.succeed<ServiceEndpoint, OpenCodeError, Unit>(endpoint),
+        ),
+      );
+      client = _clientFor(endpoint.url, headers: endpoint.headers());
     }
-    client.transport.retry = const RetryPolicy();
     _client = client;
     return client;
+  }
+
+  /// Creates the effect client for [baseUrl].
+  ///
+  /// The SDK transport keeps its retry policy unset: reads that deserve a
+  /// retry compose `withReadRetry()` on their own effects, and writes are
+  /// never retried implicitly.
+  EffectOpenCodeClient _clientFor(Uri baseUrl, {Map<String, String>? headers}) {
+    final sdk = OpenCodeClient(
+      baseUrl: baseUrl,
+      headers: headers,
+      clientFactory: _transportFactory,
+    );
+    sdk.transport.retry = null;
+    return EffectOpenCodeClient(sdk);
   }
 
   Future<(Genkit, OpenCodePlugin)> _ensureGenkit() async {
     final existing = _genkit;
     if (existing != null) return (existing, _plugin!);
     final client = await _ensureClient();
-    final plugin = openCode(client: client);
+    // The plugin keeps taking a plain SDK client; the bridge owns the calls
+    // this service makes itself.
+    final plugin = openCode(client: client.sdk);
     final genkit = Genkit(plugins: [plugin]);
     _plugin = plugin;
     _genkit = genkit;
@@ -181,7 +252,13 @@ class CoachService {
     if (pending != null) return pending;
     final future = () async {
       final client = await _ensureClient();
-      final session = await client.session.create(title: 'OpenFit plan');
+      // Creating the session is a write: it must never be retried blindly.
+      final session = await _runtime.runOpenCode(
+        client.call(
+          (options) =>
+              client.sdk.session.create(title: 'OpenFit plan', options: options),
+        ),
+      );
       _coachSessionID = session.id.value;
       return _coachSessionID!;
     }().whenComplete(() {
@@ -348,49 +425,85 @@ class CoachService {
   /// The session is created on first use, so chat works before any plan has
   /// been generated; once a typed plan exists, follow-up questions keep the
   /// plan in context. [attachments] ride along with the prompt as files.
+  ///
+  /// One run sends exactly one prompt through an effect turn; [cancel]
+  /// interrupts the turn's fiber (stopping the wait, not the server's work)
+  /// and the stream then reports a cancelled [CoachChatDone].
   Stream<CoachChatEvent> askCoach({
     required String text,
     List<PromptInputFileAttachment>? attachments,
-  }) async* {
-    final client = await _ensureClient();
-    final sessionID = await _ensureCoachSession();
-    final cancel = CancellationToken();
-    _chatCancel = cancel;
-    try {
-      final turn = client.streamPrompt(
-        sessionID: SessionID(sessionID),
-        text: text,
-        files: attachments,
-        options: RequestOptions(cancelToken: cancel),
-      );
-      await for (final event in turn) {
-        switch (event) {
-          case SessionTurnTextDelta(:final delta):
-            yield CoachChatDelta(delta);
-          case SessionTurnReasoningDelta(:final delta):
-            yield CoachChatReasoning(delta);
-          case SessionTurnStepUsage():
-          case SessionTurnCompleted():
-            break;
+  }) {
+    late final StreamController<CoachChatEvent> controller;
+
+    Future<void> run() async {
+      Fiber<SessionTurnResult, OpenCodeError>? fiber;
+      try {
+        final client = await _ensureClient();
+        final sessionID = await _ensureCoachSession();
+        // The listener may already be gone (the widget cancels its
+        // subscription when a new turn starts): do not send a prompt nobody
+        // will observe.
+        if (!controller.hasListener) return;
+        fiber = _runtime.fork(
+          client.runTurn<Unit>(
+            sessionID: SessionID(sessionID),
+            text: text,
+            files: attachments,
+            onEvent: (event) {
+              switch (event) {
+                case SessionTurnTextDelta(:final delta):
+                  controller.add(CoachChatDelta(delta));
+                case SessionTurnReasoningDelta(:final delta):
+                  controller.add(CoachChatReasoning(delta));
+                case SessionTurnStepUsage():
+                case SessionTurnCompleted():
+                  break;
+              }
+            },
+          ),
+        );
+        _chatFiber = fiber;
+        final exit = await fiber.awaitExit();
+        switch (exit) {
+          case Success(:final value):
+            controller.add(
+              CoachChatDone(
+                value.text,
+                usage: _generationUsage(value.usage),
+              ),
+            );
+          case Failure(cause: Interrupted()):
+            // The athlete pressed stop, or the server reported the execution
+            // as interrupted: the same event as before the migration.
+            controller.add(const CoachChatDone('', cancelled: true));
+          case Failure(cause: Expected(error: OpenCodeCallCancelled())):
+            controller.add(const CoachChatDone('', cancelled: true));
+          case Failure(cause: Expected(:final error)):
+            // Typed failures (API, transport, execution, ...) keep surfacing
+            // as stream errors, so the chat bubble shows the same message.
+            throw error;
+          case Failure(:final cause):
+            throw EffectException(cause);
         }
+      } on Object catch (error, stackTrace) {
+        if (!controller.isClosed) controller.addError(error, stackTrace);
+      } finally {
+        if (identical(_chatFiber, fiber)) _chatFiber = null;
+        await controller.close();
       }
-      final result = await turn.result;
-      yield CoachChatDone(
-        result.text,
-        cancelled: cancel.isCancelled,
-        usage: _generationUsage(result.usage),
-      );
-    } on OpenCodeCancelledException {
-      yield const CoachChatDone('', cancelled: true);
-    } finally {
-      if (identical(_chatCancel, cancel)) _chatCancel = null;
     }
+
+    controller = StreamController<CoachChatEvent>(
+      onListen: () => unawaited(run()),
+      onCancel: () => _chatFiber?.interruptAndAwait(),
+    );
+    return controller.stream;
   }
 
   /// Aborts the in-flight plan generation or chat turn, if any.
   void cancel() {
     _active?.cancel('Stopped by the athlete');
-    _chatCancel?.cancel();
+    _chatFiber?.interrupt();
   }
 
   // Helpers ------------------------------------------------------------------

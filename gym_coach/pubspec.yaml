@@ -9,12 +9,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  effect_core: ^0.0.2
   file_selector: ^1.0.2
   genkit: ^1.0.0
   genkit_opencode_custom:
     path: ../genkit_opencode_custom
   http: ^1.2.0
   marionette_flutter: 0.6.0
+  opencode_effect:
+    path: ../opencode_effect
   opencode_sdk_dart:
     path: ../
   schemantic: ^1.0.0

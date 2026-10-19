@@ -177,6 +177,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
+  effect_core:
+    dependency: "direct main"
+    description:
+      name: effect_core
+      sha256: "2e4324759cae555908a868a4924f49754f45c30ef70a49fdb0ce281a46a3bf26"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.0.2"
   email_validator:
     dependency: transitive
     description:
@@ -471,6 +479,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
+  opencode_effect:
+    dependency: "direct main"
+    description:
+      path: "../opencode_effect"
+      relative: true
+    source: path
+    version: "0.1.0"
   opencode_sdk_dart:
     dependency: "direct main"
     description:
