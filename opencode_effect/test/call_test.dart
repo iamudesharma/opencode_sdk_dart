@@ -222,6 +222,74 @@ void main() {
     });
   });
 
+  group('abortability', () {
+    test('default calls carry a per-run cancellation token', () async {
+      RequestOptions? seen;
+      final runtime = Runtime<Unit>(Unit.value);
+      await runtime.runFuture(
+        openCodeCall<int, Unit>((options) {
+          seen = options;
+          return Future.value(1);
+        }),
+      );
+      expect(seen!.cancelToken, isNotNull);
+    });
+
+    test('abortable: false uses the pooled path (no token)', () async {
+      RequestOptions? seen;
+      final runtime = Runtime<Unit>(Unit.value);
+      await runtime.runFuture(
+        openCodeCall<int, Unit>((options) {
+          seen = options;
+          return Future.value(1);
+        }, abortable: false),
+      );
+      expect(seen!.cancelToken, isNull);
+    });
+
+    test('abortable: false interruption stops waiting', () async {
+      var started = false;
+      final gate = Completer<int>();
+      Object? released;
+      final effect = openCodeCall<int, Unit>(
+        (_) {
+          started = true;
+          return gate.future;
+        },
+        abortable: false,
+        onInterruptedResult: (value) => released = value,
+      );
+      final runtime = Runtime<Unit>(Unit.value);
+      final fiber = runtime.fork(effect);
+      while (!started) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      fiber.interrupt();
+      gate.complete(9);
+      final exit = await fiber.awaitExit();
+      expect(released, 9);
+      expect(
+        (exit as Failure<int, OpenCodeError>).cause,
+        isA<Interrupted<OpenCodeError>>(),
+      );
+    });
+
+    test('reads stay retryable when not abortable', () async {
+      final server = FakeOpenCodeServer()..infoFailures = 1;
+      final client = EffectOpenCodeClient(sdkClientFor(server));
+      final runtime = Runtime<Unit>(Unit.value);
+      final info = await runtime.runOpenCode(
+        client.read(
+          (options) => client.sdk.server.info(options: options),
+          abortable: false,
+          schedule: Schedule(recurrences: 2, initialDelay: Duration.zero),
+        ),
+      );
+      expect(info.version, '1.2.3');
+      expect(server.infoCalls, 2);
+    });
+  });
+
   group('EffectOpenCodeClient.make', () {
     test('forwards clientFactory for cancellable requests', () async {
       final server = FakeOpenCodeServer();

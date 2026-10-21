@@ -70,16 +70,24 @@ final class EffectOpenCodeClient {
   /// The run gets a fresh SDK cancellation token; interrupting the fiber
   /// aborts the in-flight request. [location] pins the call to a working
   /// directory and [headers] adds per-call headers.
+  ///
+  /// Set [abortable] to `false` for hot request/response loops that prefer the
+  /// SDK's pooled shared client: no dedicated client/connection is opened per
+  /// call, but interruption only stops waiting (the request completes and its
+  /// result is discarded). Streams, writes and long operations should stay
+  /// abortable.
   Effect<A, OpenCodeError, R> call<A, R>(
     Future<A> Function(RequestOptions options) invoke, {
     LocationRef? location,
     Map<String, String>? headers,
+    bool abortable = true,
     FutureOr<void> Function(A value)? onInterruptedResult,
   }) => openCodeCall(
     invoke,
     base: (location == null && headers == null)
         ? null
         : RequestOptions(location: location, headers: headers),
+    abortable: abortable,
     onInterruptedResult: onInterruptedResult,
   );
 
@@ -91,15 +99,18 @@ final class EffectOpenCodeClient {
   /// call and infers both `A` and `R` from context.
   ///
   /// Never use this for writes; see [OpenCodeReadRetry.withReadRetry].
+  /// [abortable] forwards to [call] — pass `false` for hot read loops.
   Effect<A, OpenCodeError, R> read<A, R>(
     Future<A> Function(RequestOptions options) invoke, {
     LocationRef? location,
     Map<String, String>? headers,
     Schedule? schedule,
+    bool abortable = true,
   }) => call<A, R>(
     invoke,
     location: location,
     headers: headers,
+    abortable: abortable,
   ).withReadRetry(schedule);
 
   /// The shared event stream as a pull stream.

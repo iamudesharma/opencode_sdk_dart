@@ -18,10 +18,16 @@ import 'errors.dart';
 
 /// Runs one SDK call as an effect.
 ///
-/// Each run of the returned effect creates a fresh SDK [CancellationToken];
-/// interrupting the running fiber cancels it, which aborts the underlying
-/// HTTP request. The token is never shared between runs, so a retried call
-/// (see [OpenCodeReadRetry]) always starts cleanly.
+/// By default each run creates a fresh SDK [CancellationToken]; interrupting
+/// the running fiber cancels it, which aborts the underlying HTTP request. The
+/// token is never shared between runs, so a retried call (see
+/// [OpenCodeReadRetry]) always starts cleanly.
+///
+/// Set [abortable] to `false` for hot request/response loops that prefer the
+/// SDK's pooled shared client over per-call abortability: the SDK then opens
+/// no dedicated client/connection per call, but interrupting the fiber only
+/// stops waiting — the request runs to completion and its result is discarded.
+/// Writes, streams and long operations should stay abortable.
 ///
 /// [invoke] receives the [RequestOptions] the run must use. Always forward
 /// them to the SDK method:
@@ -33,23 +39,29 @@ import 'errors.dart';
 /// [base] contributes the location and extra headers of every run. The SDK's
 /// own transport retry is deliberately left unset: retries belong in the
 /// effect ([retry]) so they compose with interruption, metrics and tests.
+///
+/// [onInterruptedResult] releases a value produced in the instant before an
+/// interrupt (for example a just-opened socket) so acquisitions cannot leak.
 Effect<A, OpenCodeError, R> openCodeCall<A, R>(
   Future<A> Function(RequestOptions options) invoke, {
   RequestOptions? base,
+  bool abortable = true,
   FutureOr<void> Function(A value)? onInterruptedResult,
 }) => Effect.asyncExit<A, OpenCodeError, R>((context) async {
-  final sdkToken = CancellationToken();
-  final detach = context.token.onCancel(sdkToken.cancel);
+  final sdkToken = abortable ? CancellationToken() : null;
+  final detach = sdkToken == null
+      ? null
+      : context.token.onCancel(sdkToken.cancel);
   final options = RequestOptions(
     location: base?.location,
     headers: base?.headers,
     cancelToken: sdkToken,
   );
-  return _evaluate(
-    () => invoke(options),
-    context,
-    onInterruptedResult,
-  ).whenComplete(detach);
+  try {
+    return await _evaluate(() => invoke(options), context, onInterruptedResult);
+  } finally {
+    detach?.call();
+  }
 });
 
 /// Runs one asynchronous SDK operation as an effect.

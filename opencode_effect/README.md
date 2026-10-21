@@ -190,4 +190,5 @@ live mode every bridged call carries a per-run cancellation token, so the SDK
 opens a dedicated HTTP client (and connection) per request — the price of
 aborting in-flight work when the fiber is interrupted. The benchmark's third
 row isolates that cost by calling the SDK without the token (shared pooled
-client); see `MIGRATION.md` for the trade-off.
+client). Pass `abortable: false` to `call`/`read` for hot request/response
+loops that prefer the pooled path; see `MIGRATION.md` for the trade-off.

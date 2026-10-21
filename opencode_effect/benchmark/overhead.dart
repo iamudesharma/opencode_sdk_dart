@@ -82,11 +82,13 @@ Future<void> _runLive(int iterations) async {
       (options) => sdk.server.info(options: options),
     ),
   );
-  // Same effect machinery, but the SDK call does not receive the per-run
-  // token, so the SDK keeps using its pooled shared client. This isolates
-  // the connection-per-call cost of abortability from interpreter overhead.
+  // Same effect machinery with the supported pooled mode: `abortable: false`
+  // skips the per-run token, so the SDK keeps using its shared HTTP client.
   Future<ServerInfo> bridgedShared() => runtime.runOpenCode(
-    client.call<ServerInfo, Unit>((_) => sdk.server.info()),
+    client.call<ServerInfo, Unit>(
+      (options) => sdk.server.info(options: options),
+      abortable: false,
+    ),
   );
 
   for (var i = 0; i < 20; i++) {
