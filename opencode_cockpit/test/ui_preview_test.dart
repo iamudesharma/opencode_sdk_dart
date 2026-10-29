@@ -55,6 +55,8 @@ Future<void> loadSystemFonts() async {
     '/System/Library/Fonts/SFNSMono.ttf',
     '/System/Library/Fonts/Supplemental/Courier New.ttf',
   ]);
+  await load('InstrumentSans', const ['assets/fonts/InstrumentSans.ttf']);
+  await load('JetBrainsMono', const ['assets/fonts/JetBrainsMono.ttf']);
   final flutterRoot =
       Platform.environment['FLUTTER_ROOT'] ?? _flutterRootFromPath();
   if (flutterRoot != null) {
@@ -471,6 +473,7 @@ void main() {
       RepaintBoundary(
         key: previewKey,
         child: MaterialApp(
+          debugShowCheckedModeBanner: false,
           theme: buildCockpitTheme(Brightness.dark),
           home: Scaffold(
             body: Center(child: ConnectionsDialog(client: client)),

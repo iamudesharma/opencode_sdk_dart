@@ -95,13 +95,13 @@ class _CockpitShellState extends State<CockpitShell> {
               key: _scaffoldKey,
               drawer: narrow
                   ? Drawer(
-                      width: 372,
+                      width: 380,
                       child: _NarrowDrawer(controller: controller),
                     )
                   : null,
               endDrawer: narrow && inspectorVisible
                   ? Drawer(
-                      width: 440,
+                      width: 460,
                       child: InspectorPanel(controller: controller),
                     )
                   : null,
@@ -118,7 +118,7 @@ class _CockpitShellState extends State<CockpitShell> {
                               _ActivityRail(controller: controller),
                               const VerticalDivider(width: 1),
                               SizedBox(
-                                width: 304,
+                                width: 320,
                                 child: _Explorer(controller: controller),
                               ),
                               const VerticalDivider(width: 1),
@@ -132,7 +132,7 @@ class _CockpitShellState extends State<CockpitShell> {
                             if (!narrow && inspectorVisible) ...[
                               const VerticalDivider(width: 1),
                               SizedBox(
-                                width: 470,
+                                width: 460,
                                 child: InspectorPanel(controller: controller),
                               ),
                             ],
@@ -175,18 +175,19 @@ class _Logo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       width: 26,
       height: 26,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF8B7CF6), Color(0xFF4FC3F7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(8),
+        color: theme.colorScheme.primary,
+        borderRadius: BorderRadius.circular(7),
       ),
-      child: const Icon(Icons.terminal_rounded, size: 16, color: Colors.white),
+      child: Icon(
+        Icons.terminal_rounded,
+        size: 15,
+        color: theme.colorScheme.onPrimary,
+      ),
     );
   }
 }
@@ -201,8 +202,11 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      height: 48,
-      color: theme.panelBackground,
+      height: 52,
+      decoration: BoxDecoration(
+        color: theme.chromeBackground,
+        border: Border(bottom: BorderSide(color: theme.hairline)),
+      ),
       padding: EdgeInsets.symmetric(horizontal: narrow ? 6 : 12),
       child: narrow ? _buildNarrow(context, theme) : _buildWide(context, theme),
     );
@@ -213,8 +217,29 @@ class _TopBar extends StatelessWidget {
       children: [
         const _Logo(),
         const SizedBox(width: 10),
-        Text('OpenCode Cockpit', style: theme.textTheme.titleSmall),
-        const SizedBox(width: 16),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'OPENCODE',
+              style: theme.microLabel.copyWith(
+                fontSize: 7,
+                letterSpacing: 1.7,
+                color: theme.colorScheme.outline,
+              ),
+            ),
+            Text(
+              'Cockpit',
+              style: theme.textTheme.titleSmall!.copyWith(
+                fontSize: 13,
+                height: 1.1,
+                letterSpacing: -0.1,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(width: 20),
         Expanded(
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -222,7 +247,7 @@ class _TopBar extends StatelessWidget {
               children: [
                 for (final project in controller.projects)
                   Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.only(right: 2),
                     child: _ProjectTab(
                       project: project,
                       selected: controller.activeProject?.id == project.id,
@@ -236,17 +261,17 @@ class _TopBar extends StatelessWidget {
         IconButton(
           tooltip: 'Refresh projects',
           onPressed: () => controller.loadProjects(),
-          icon: const Icon(Icons.refresh_rounded, size: 17),
+          icon: const Icon(Icons.refresh_rounded, size: 16),
         ),
         IconButton(
           tooltip: 'Command palette (\u2318K)',
           onPressed: controller.showPalette,
-          icon: const Icon(Icons.rocket_launch_outlined, size: 17),
+          icon: const Icon(Icons.rocket_launch_outlined, size: 16),
         ),
         IconButton(
           tooltip: 'Connections and settings',
           onPressed: () => _showConnections(context, controller),
-          icon: const Icon(Icons.tune_rounded, size: 17),
+          icon: const Icon(Icons.tune_rounded, size: 16),
         ),
         IconButton(
           tooltip: 'Toggle theme (\u2318\u21e7I)',
@@ -255,13 +280,13 @@ class _TopBar extends StatelessWidget {
             controller.themeMode == ThemeMode.dark
                 ? Icons.light_mode_outlined
                 : Icons.dark_mode_outlined,
-            size: 17,
+            size: 16,
           ),
         ),
         IconButton(
           tooltip: 'Reconnect',
           onPressed: () => controller.connectLocal(),
-          icon: const Icon(Icons.link_rounded, size: 17),
+          icon: const Icon(Icons.link_rounded, size: 16),
         ),
       ],
     );
@@ -273,16 +298,16 @@ class _TopBar extends StatelessWidget {
         IconButton(
           tooltip: 'Menu',
           onPressed: () => Scaffold.of(context).openDrawer(),
-          icon: const Icon(Icons.menu_rounded, size: 19),
+          icon: const Icon(Icons.menu_rounded, size: 18),
         ),
         const _Logo(),
-        const SizedBox(width: 10),
+        const SizedBox(width: 9),
         Expanded(
           child: Text(
-            'OpenCode Cockpit',
+            'Cockpit',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall,
+            style: theme.textTheme.titleSmall!.copyWith(fontSize: 13),
           ),
         ),
         if (controller.projects.isNotEmpty)
@@ -290,7 +315,7 @@ class _TopBar extends StatelessWidget {
         IconButton(
           tooltip: 'Command palette (\u2318K)',
           onPressed: controller.showPalette,
-          icon: const Icon(Icons.rocket_launch_outlined, size: 17),
+          icon: const Icon(Icons.rocket_launch_outlined, size: 16),
         ),
         IconButton(
           tooltip: 'Toggle theme (\u2318\u21e7I)',
@@ -299,13 +324,13 @@ class _TopBar extends StatelessWidget {
             controller.themeMode == ThemeMode.dark
                 ? Icons.light_mode_outlined
                 : Icons.dark_mode_outlined,
-            size: 17,
+            size: 16,
           ),
         ),
         IconButton(
           tooltip: 'Reconnect',
           onPressed: () => controller.connectLocal(),
-          icon: const Icon(Icons.link_rounded, size: 17),
+          icon: const Icon(Icons.link_rounded, size: 16),
         ),
       ],
     );
@@ -366,21 +391,17 @@ class _ProjectTab extends StatelessWidget {
     return Tooltip(
       message: project.canonical,
       child: InkWell(
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(6),
         onTap: onTap,
+        hoverColor: theme.colorScheme.primary.withValues(alpha: 0.06),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
           decoration: BoxDecoration(
-            color: selected
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5)
-                : theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.4,
-                  ),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(
-              color: selected
-                  ? theme.colorScheme.primary.withValues(alpha: 0.5)
-                  : Colors.transparent,
+            border: Border(
+              bottom: BorderSide(
+                color: selected ? theme.accent : Colors.transparent,
+                width: 2,
+              ),
             ),
           ),
           child: Row(
@@ -388,13 +409,21 @@ class _ProjectTab extends StatelessWidget {
             children: [
               Icon(
                 Icons.folder_outlined,
-                size: 13,
+                size: 12,
                 color: selected
                     ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
+                    : theme.colorScheme.outline,
               ),
-              const SizedBox(width: 7),
-              Text(name, style: theme.textTheme.labelMedium),
+              const SizedBox(width: 6),
+              Text(
+                name,
+                style: theme.textTheme.labelMedium!.copyWith(
+                  color: selected
+                      ? theme.colorScheme.onSurface
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
             ],
           ),
         ),
@@ -420,11 +449,11 @@ class _ActivityRail extends StatelessWidget {
     }
 
     return Container(
-      width: 52,
+      width: 48,
       color: theme.railBackground,
       child: Column(
         children: [
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           _RailButton(
             icon: Icons.forum_outlined,
             tooltip: 'Sessions',
@@ -526,28 +555,44 @@ class _RailButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
+      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 5),
       child: Tooltip(
         message: tooltip,
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
           onTap: onTap,
-          child: Container(
-            width: 40,
-            height: 38,
-            decoration: BoxDecoration(
-              color: selected
-                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5)
-                  : null,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              size: 19,
-              color: selected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 140),
+                width: 38,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: selected ? theme.accentSoft : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              Icon(
+                icon,
+                size: 18,
+                color: selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              if (selected)
+                Positioned(
+                  left: 0,
+                  child: Container(
+                    width: 2,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: theme.accent,
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -699,63 +744,98 @@ class _SessionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final session = controller.activeSession;
-    return Container(
-      height: 52,
-      color: theme.panelBackground,
-      padding: EdgeInsets.symmetric(horizontal: narrow ? 10 : 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              session?.title?.trim().isNotEmpty == true
-                  ? session!.title!
-                  : session != null
-                  ? 'Untitled session'
-                  : 'No session selected',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleSmall,
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tight = constraints.maxWidth < 760;
+        return Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: theme.chromeBackground,
+            border: Border(bottom: BorderSide(color: theme.hairline)),
           ),
-          if (session != null) ...[
-            if (controller.agents.isNotEmpty)
-              _AgentMenu(controller: controller, session: session),
-            const SizedBox(width: 8),
-            if (controller.models.isNotEmpty)
-              _ModelMenu(controller: controller, session: session),
-            const SizedBox(width: 8),
-            if (controller.sessionForms.isNotEmpty)
-              IconButton(
-                tooltip: 'Agent question (${controller.sessionForms.length})',
-                onPressed: () => showFormDialog(context, controller),
-                icon: Badge(
-                  label: Text('${controller.sessionForms.length}'),
-                  child: const Icon(Icons.assignment_outlined, size: 17),
+          padding: EdgeInsets.symmetric(horizontal: narrow ? 10 : 16),
+          child: Row(
+            children: [
+              if (session != null) ...[
+                Container(
+                  width: 2,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: theme.accent,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SESSION',
+                      style: theme.microLabel.copyWith(fontSize: 8),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      session?.title?.trim().isNotEmpty == true
+                          ? session!.title!
+                          : session != null
+                          ? 'Untitled session'
+                          : 'No session selected',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall!.copyWith(
+                        fontSize: 13.5,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            IconButton(
-              tooltip: 'Review changes in this session',
-              onPressed: () {
-                controller.showInspector(InspectorTab.changes);
-                controller.loadSessionChanges();
-              },
-              icon: const Icon(Icons.rule_folder_outlined, size: 17),
-            ),
-            if (!narrow) ...[
-              IconButton(
-                tooltip: 'Fork session',
-                onPressed: () => controller.forkSession(session),
-                icon: const Icon(Icons.call_split_rounded, size: 17),
-              ),
-              IconButton(
-                tooltip: 'Reload transcript',
-                onPressed: () => controller.loadMessages(),
-                icon: const Icon(Icons.refresh_rounded, size: 17),
-              ),
+              if (session != null) ...[
+                if (!tight && controller.agents.isNotEmpty)
+                  _AgentMenu(controller: controller, session: session),
+                if (!tight && controller.agents.isNotEmpty)
+                  const SizedBox(width: 8),
+                if (!tight && controller.models.isNotEmpty)
+                  _ModelMenu(controller: controller, session: session),
+                if (!tight && controller.models.isNotEmpty)
+                  const SizedBox(width: 8),
+                if (controller.sessionForms.isNotEmpty)
+                  IconButton(
+                    tooltip:
+                        'Agent question (${controller.sessionForms.length})',
+                    onPressed: () => showFormDialog(context, controller),
+                    icon: Badge(
+                      label: Text('${controller.sessionForms.length}'),
+                      child: const Icon(Icons.assignment_outlined, size: 16),
+                    ),
+                  ),
+                IconButton(
+                  tooltip: 'Review changes in this session',
+                  onPressed: () {
+                    controller.showInspector(InspectorTab.changes);
+                    controller.loadSessionChanges();
+                  },
+                  icon: const Icon(Icons.rule_folder_outlined, size: 16),
+                ),
+                if (!narrow) ...[
+                  IconButton(
+                    tooltip: 'Fork session',
+                    onPressed: () => controller.forkSession(session),
+                    icon: const Icon(Icons.call_split_rounded, size: 16),
+                  ),
+                  IconButton(
+                    tooltip: 'Reload transcript',
+                    onPressed: () => controller.loadMessages(),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                  ),
+                ],
+              ],
             ],
-          ],
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -939,19 +1019,22 @@ class _HeaderChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        color: theme.surfaceRaised,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: theme.hairline),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: theme.colorScheme.onSurfaceVariant),
+          Icon(icon, size: 12, color: theme.colorScheme.outline),
           const SizedBox(width: 6),
           Text(
             label,
-            style: theme.textTheme.labelSmall?.copyWith(
+            style: kMonoTextStyle.copyWith(
+              fontSize: 10,
+              height: 1.1,
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
@@ -973,17 +1056,21 @@ class _StatusBar extends StatelessWidget {
     final usage = session == null ? null : controller.usage[session.id];
     final tokens = usage?.tokens;
     final cost = usage?.cost ?? session?.cost;
+    final hasError = controller.connectionError != null;
     return Container(
-      height: 28,
-      color: theme.panelBackground,
+      height: 26,
+      decoration: BoxDecoration(
+        color: theme.chromeBackground,
+        border: Border(top: BorderSide(color: theme.hairline)),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Row(
         children: [
           Container(
-            width: 7,
-            height: 7,
-            decoration: const BoxDecoration(
-              color: Color(0xFF4ADE80),
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: hasError ? theme.colorScheme.error : theme.success,
               shape: BoxShape.circle,
             ),
           ),
@@ -994,8 +1081,9 @@ class _StatusBar extends StatelessWidget {
                   '${controller.baseUrl} \u00b7 v${controller.serverVersion}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: controller.connectionError != null
+              style: kMonoTextStyle.copyWith(
+                fontSize: 9.5,
+                color: hasError
                     ? theme.colorScheme.error
                     : theme.colorScheme.onSurfaceVariant,
               ),
@@ -1005,17 +1093,19 @@ class _StatusBar extends StatelessWidget {
             Row(
               children: [
                 SizedBox(
-                  width: 10,
-                  height: 10,
+                  width: 9,
+                  height: 9,
                   child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
+                    strokeWidth: 1.4,
                     color: theme.colorScheme.primary,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 7),
                 Text(
-                  'Working\u2026',
-                  style: theme.textTheme.labelSmall?.copyWith(
+                  'WORKING',
+                  style: theme.microLabel.copyWith(
+                    fontSize: 8,
+                    letterSpacing: 1.3,
                     color: theme.colorScheme.primary,
                   ),
                 ),
@@ -1027,7 +1117,8 @@ class _StatusBar extends StatelessWidget {
               '${compactTokens(tokens.input)} in \u00b7 '
               '${compactTokens(tokens.output)} out \u00b7 '
               '\$${cost.toStringAsFixed(4)}',
-              style: theme.textTheme.labelSmall?.copyWith(
+              style: kMonoTextStyle.copyWith(
+                fontSize: 9.5,
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
@@ -1035,8 +1126,9 @@ class _StatusBar extends StatelessWidget {
           const SizedBox(width: 14),
           Text(
             'sessions ${controller.rootSessions.length}',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
+            style: kMonoTextStyle.copyWith(
+              fontSize: 9.5,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],

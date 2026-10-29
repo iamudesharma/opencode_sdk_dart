@@ -147,8 +147,8 @@ flutter test tool/live_cockpit_check.dart  # live end-to-end (needs a server)
   loopback server: `ptyConnect`/`ptyText`/`ptyClose` through
   `acquireUseRelease`, resume cursors, framed persistent input, detach without
   killing the server-side terminal, and SSE teardown on dispose.
-- `test/ui_preview_test.dart` — renders the screens with real macOS fonts and
-  writes them to `test/previews/` (including the narrow layout).
+- `test/ui_preview_test.dart` — renders the screens with the bundled UI/mono
+  faces and writes them to `test/previews/` (including the narrow layout).
 - `test/model_picker_test.dart` — searchable model dialog: full catalog,
   filtering, current-model checkmark, selection.
 - `test/markdown_lite_test.dart` — headings, lists, quotes, rules, and the
@@ -233,9 +233,14 @@ effect-based.
   `session_transfer_web.dart` behind `session_transfer.dart`): desktop writes
   and reads files, the web downloads a Blob and reads through an
   `<input type="file">` picker. `dart:io` never leaks into the shared widgets.
-- The theme uses the platform default family plus a Menlo / SF Mono /
-  monospace stack (`kMonoTextStyle`) for code, paths, and terminal chrome, so
-  ⌘ renders correctly on macOS and the web.
+- The theme uses bundled **Instrument Sans** for UI and **JetBrains Mono** for
+  code, paths and terminal chrome (`kMonoTextStyle`), so typography is
+  identical on macOS, the web build and the widget-test previews. Both are
+  OFL-licensed under `assets/fonts/`.
+- The dark and light palettes are semantic tokens in `theme.dart`: a graphite
+  chrome, warm paper light mode, one cobalt signal accent, mint for success and
+  amber for warnings. Selected rows, active rail items and tool states all
+  resolve through those tokens rather than ad-hoc hex values.
 - The controller coalesces listener updates to one per ~16 ms frame; streaming
   transcripts scroll with `jumpTo` while the active message streams and with a
   short animation otherwise.

@@ -522,9 +522,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: Text(
                         'Plan history',
-                        style: theme.textTheme.titleMedium!.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: theme.textTheme.headlineSmall,
                       ),
                     ),
                     IconButton(
@@ -575,14 +573,12 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final message = await exportPlanMarkdown(markdown: markdown);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export failed: $error')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Export failed: $error')));
     }
   }
 
@@ -633,14 +629,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildWide(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = context.fit;
     return Scaffold(
+      backgroundColor: tokens.bg,
       body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(width: 360, child: _buildConfigPane(theme)),
-          VerticalDivider(
-            width: 1,
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-          ),
+          SizedBox(width: 396, child: _buildConfigPane(theme)),
+          VerticalDivider(width: 1, color: tokens.line),
           Expanded(child: _buildWorkspace(theme)),
         ],
       ),
@@ -649,22 +645,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildNarrow(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = context.fit;
     return Scaffold(
+      backgroundColor: tokens.bg,
       appBar: AppBar(
-        toolbarHeight: 64,
+        toolbarHeight: 72,
         titleSpacing: Insets.lg,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+        backgroundColor: tokens.bg,
+        title: Row(
           children: [
-            Text(
-              'OpenFit',
-              style: theme.textTheme.titleLarge!.copyWith(
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.3,
+            const FitLogo(size: 32),
+            const SizedBox(width: Insets.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'OpenFit',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.headlineSmall!.copyWith(
+                      fontSize: 24,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  _statusLine(theme),
+                ],
               ),
             ),
-            _statusLine(theme),
           ],
         ),
         actions: [
@@ -674,15 +683,40 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _openHistory,
             icon: const Icon(Icons.history, size: 20),
           ),
-          IconButton(
-            tooltip: 'Export Markdown',
-            onPressed: _hasPlan ? _exportPlan : null,
-            icon: const Icon(Icons.ios_share, size: 20),
-          ),
-          IconButton(
-            tooltip: 'Copy plan',
-            onPressed: _hasPlan ? _copyPlan : null,
-            icon: const Icon(Icons.copy_all_outlined, size: 20),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_horiz_rounded, size: 20),
+            onSelected: (value) {
+              if (value == 'export') {
+                _exportPlan();
+              } else {
+                _copyPlan();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'export',
+                enabled: _hasPlan,
+                child: Row(
+                  children: [
+                    const Icon(Icons.ios_share, size: 17),
+                    const SizedBox(width: Insets.sm),
+                    const Text('Export Markdown'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'copy',
+                enabled: _hasPlan,
+                child: Row(
+                  children: [
+                    const Icon(Icons.copy_all_outlined, size: 17),
+                    const SizedBox(width: Insets.sm),
+                    const Text('Copy plan'),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(width: Insets.xs),
         ],
@@ -739,14 +773,16 @@ class _HomeScreenState extends State<HomeScreen> {
         Expanded(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(
-              Insets.lg,
-              Insets.lg,
-              Insets.lg,
+              Insets.xl,
+              Insets.xl,
+              Insets.xl,
               Insets.sm,
             ),
             children: [
+              const SectionLabel('Quick start'),
+              const SizedBox(height: Insets.md),
               _presetStrip(theme, horizontal: true),
-              const SizedBox(height: Insets.lg),
+              const SizedBox(height: Insets.xxl),
               ..._configCards(theme),
             ],
           ),
@@ -755,9 +791,9 @@ class _HomeScreenState extends State<HomeScreen> {
           top: false,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
-              Insets.lg,
+              Insets.xl,
               Insets.sm,
-              Insets.lg,
+              Insets.xl,
               Insets.md,
             ),
             child: _generateButton(theme, expanded: true),
@@ -771,21 +807,29 @@ class _HomeScreenState extends State<HomeScreen> {
       _workspaceBody(theme, padded: true);
 
   Widget _buildHistoryTab(ThemeData theme) {
+    final tokens = context.fit;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(
-            Insets.lg,
-            Insets.lg,
-            Insets.lg,
-            0,
+            Insets.xl,
+            Insets.xl,
+            Insets.xl,
+            Insets.sm,
           ),
-          child: Text(
-            'Saved plans',
-            style: theme.textTheme.titleMedium!.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SectionLabel('Library'),
+              const SizedBox(height: Insets.sm),
+              Text(
+                'Saved plans',
+                style: theme.textTheme.headlineSmall!.copyWith(
+                  color: tokens.text,
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -798,32 +842,22 @@ class _HomeScreenState extends State<HomeScreen> {
   // Config pane (wide) / Build tab (narrow) ----------------------------------
 
   Widget _buildConfigPane(ThemeData theme) {
+    final tokens = context.fit;
     return Material(
-      color: theme.colorScheme.surfaceContainerLowest,
+      color: tokens.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
+              Insets.xxl,
+              Insets.xxl,
               Insets.xl,
-              Insets.xl,
-              Insets.xl,
-              Insets.md,
+              Insets.lg,
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(Insets.sm),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.14),
-                    borderRadius: Radii.control,
-                  ),
-                  child: Icon(
-                    Icons.fitness_center,
-                    color: theme.colorScheme.primary,
-                    size: 22,
-                  ),
-                ),
+                const FitLogo(size: 38),
                 const SizedBox(width: Insets.md),
                 Expanded(
                   child: Column(
@@ -831,46 +865,80 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text(
                         'OpenFit',
-                        style: theme.textTheme.titleLarge!.copyWith(
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.3,
+                        style: theme.textTheme.headlineSmall!.copyWith(
+                          fontSize: 27,
+                          letterSpacing: -0.5,
                         ),
                       ),
+                      const SizedBox(height: 3),
                       Text(
-                        'your AI strength & nutrition coach',
-                        style: theme.textTheme.bodySmall!.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                        'AI STRENGTH & NUTRITION',
+                        style: theme.textTheme.labelSmall!.copyWith(
+                          fontSize: 8.5,
+                          letterSpacing: 1.9,
+                          color: tokens.dim,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(
-                Insets.xl,
-                Insets.sm,
-                Insets.xl,
-                Insets.lg,
-              ),
-              children: [
-                _presetStrip(theme, horizontal: false),
-                const SizedBox(height: Insets.md),
-                ..._configCards(theme),
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: tokens.accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
               ],
             ),
           ),
           Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Insets.xxl),
+            child: Container(height: 1, color: tokens.line),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                Insets.xxl,
+                Insets.xl,
+                Insets.xxl,
+                Insets.lg,
+              ),
+              children: [
+                _presetStrip(theme, horizontal: false),
+                const SizedBox(height: Insets.xxl),
+                ..._configCards(theme),
+              ],
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: tokens.surface,
+              border: Border(top: BorderSide(color: tokens.line)),
+            ),
             padding: const EdgeInsets.fromLTRB(
-              Insets.xl,
-              Insets.md,
-              Insets.xl,
+              Insets.xxl,
+              Insets.lg,
+              Insets.xxl,
               Insets.xl,
             ),
-            child: _generateButton(theme, expanded: true),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _generateButton(theme, expanded: true),
+                const SizedBox(height: Insets.sm),
+                Text(
+                  'Plans are saved on this device.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.labelSmall!.copyWith(
+                    fontSize: 9,
+                    letterSpacing: 0.6,
+                    color: tokens.dim,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -879,15 +947,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Widget> _configCards(ThemeData theme) => [
     _goalCard(theme),
-    const SizedBox(height: Insets.md),
+    const SizedBox(height: Insets.lg),
     _scheduleCard(theme),
-    const SizedBox(height: Insets.md),
+    const SizedBox(height: Insets.lg),
     _equipmentCard(theme),
-    const SizedBox(height: Insets.md),
+    const SizedBox(height: Insets.lg),
     _notesCard(theme),
-    const SizedBox(height: Insets.md),
+    const SizedBox(height: Insets.lg),
     _foodCard(theme),
-    const SizedBox(height: Insets.md),
+    const SizedBox(height: Insets.lg),
+    _macroCard(theme),
+    const SizedBox(height: Insets.lg),
     _modelCard(theme),
   ];
 
@@ -986,10 +1056,7 @@ class _HomeScreenState extends State<HomeScreen> {
           isExpanded: true,
           items: [
             for (final equipment in GymEquipment.values)
-              DropdownMenuItem(
-                value: equipment,
-                child: Text(equipment.label),
-              ),
+              DropdownMenuItem(value: equipment, child: Text(equipment.label)),
           ],
           onChanged: _generating
               ? null
@@ -1030,119 +1097,168 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   );
 
-  Widget _foodCard(ThemeData theme) => AppCard(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Expanded(child: SectionLabel('Food plan')),
-            Switch(
-              value: _nutrition,
-              onChanged: _generating
-                  ? null
-                  : (value) => setState(() => _nutrition = value),
-            ),
-          ],
-        ),
-        Text(
-          'Calories, protein target and a sample day',
-          style: theme.textTheme.bodySmall!.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: Insets.lg),
-        const SectionLabel('Macro calculator'),
-        const SizedBox(height: Insets.md),
-        SegmentedButton<Sex>(
-          segments: [
-            for (final sex in Sex.values)
-              ButtonSegment(value: sex, label: Text(sex.label)),
-          ],
-          selected: {_sex},
-          onSelectionChanged: _generating
-              ? null
-              : (selection) => setState(() => _sex = selection.first),
-          showSelectedIcon: false,
-          style: _compactSegments(theme),
-        ),
-        const SizedBox(height: Insets.md),
-        Row(
-          children: [
-            Expanded(
-              child: _macroField('Weight', _weightController, suffix: 'kg'),
-            ),
-            const SizedBox(width: Insets.sm),
-            Expanded(
-              child: _macroField('Height', _heightController, suffix: 'cm'),
-            ),
-            const SizedBox(width: Insets.sm),
-            Expanded(child: _macroField('Age', _ageController)),
-          ],
-        ),
-        const SizedBox(height: Insets.md),
-        DropdownButtonFormField<ActivityLevel>(
-          initialValue: _activity,
-          isDense: true,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Activity'),
-          style: theme.textTheme.bodySmall!.copyWith(
-            color: theme.colorScheme.onSurface,
-          ),
-          items: [
-            for (final activity in ActivityLevel.values)
-              DropdownMenuItem(
-                value: activity,
-                child: Text('${activity.label} · ×${activity.factor}'),
+  Widget _foodCard(ThemeData theme) {
+    final tokens = context.fit;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Expanded(child: SectionLabel('Food plan')),
+              Switch(
+                value: _nutrition,
+                onChanged: _generating
+                    ? null
+                    : (value) => setState(() => _nutrition = value),
               ),
-          ],
-          onChanged: _generating
-              ? null
-              : (value) => setState(() => _activity = value ?? _activity),
-        ),
-        const SizedBox(height: Insets.md),
-        SegmentedButton<NutritionGoal>(
-          segments: [
-            for (final goal in NutritionGoal.values)
-              ButtonSegment(value: goal, label: Text(goal.shortLabel)),
-          ],
-          selected: {_nutritionGoal},
-          onSelectionChanged: _generating
-              ? null
-              : (selection) =>
-                    setState(() => _nutritionGoal = selection.first),
-          showSelectedIcon: false,
-          style: _compactSegments(theme),
-        ),
-        const SizedBox(height: Insets.md),
-        Text(
-          _targets?.summary ?? 'Enter weight, height and age.',
-          style: theme.textTheme.bodySmall!.copyWith(
-            fontWeight: FontWeight.w600,
-            color: _targets == null
-                ? theme.colorScheme.onSurfaceVariant
-                : theme.colorScheme.primary,
+            ],
           ),
-        ),
-        const SizedBox(height: Insets.sm),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton.tonalIcon(
-            onPressed: _generating || _targets == null
+          const SizedBox(height: Insets.xs),
+          Text(
+            'Calories, protein target and a sample day',
+            style: theme.textTheme.bodySmall!.copyWith(color: tokens.muted),
+          ),
+          if (_targetsApplied && _targets != null) ...[
+            const SizedBox(height: Insets.md),
+            Wrap(
+              spacing: Insets.sm,
+              runSpacing: Insets.sm,
+              children: [
+                StatChip(
+                  label: '${_targets!.calories} KCAL',
+                  dot: tokens.ember,
+                ),
+                StatChip(
+                  label: '${_targets!.proteinG} G PROTEIN',
+                  dot: tokens.sage,
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _macroCard(ThemeData theme) {
+    final tokens = context.fit;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionLabel('Macro calculator'),
+          const SizedBox(height: Insets.md),
+          SegmentedButton<Sex>(
+            segments: [
+              for (final sex in Sex.values)
+                ButtonSegment(value: sex, label: Text(sex.label)),
+            ],
+            selected: {_sex},
+            onSelectionChanged: _generating
                 ? null
-                : () => setState(() => _targetsApplied = !_targetsApplied),
-            icon: Icon(
-              _targetsApplied ? Icons.check : Icons.calculate_outlined,
-              size: 16,
+                : (selection) => setState(() => _sex = selection.first),
+            showSelectedIcon: false,
+            style: _compactSegments(theme),
+          ),
+          const SizedBox(height: Insets.md),
+          Row(
+            children: [
+              Expanded(
+                child: _macroField('Weight', _weightController, suffix: 'kg'),
+              ),
+              const SizedBox(width: Insets.sm),
+              Expanded(
+                child: _macroField('Height', _heightController, suffix: 'cm'),
+              ),
+              const SizedBox(width: Insets.sm),
+              Expanded(child: _macroField('Age', _ageController)),
+            ],
+          ),
+          const SizedBox(height: Insets.md),
+          DropdownButtonFormField<ActivityLevel>(
+            initialValue: _activity,
+            isDense: true,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Activity'),
+            style: theme.textTheme.bodySmall!.copyWith(color: tokens.text),
+            items: [
+              for (final activity in ActivityLevel.values)
+                DropdownMenuItem(
+                  value: activity,
+                  child: Text('${activity.label} · ×${activity.factor}'),
+                ),
+            ],
+            onChanged: _generating
+                ? null
+                : (value) => setState(() => _activity = value ?? _activity),
+          ),
+          const SizedBox(height: Insets.md),
+          SegmentedButton<NutritionGoal>(
+            segments: [
+              for (final goal in NutritionGoal.values)
+                ButtonSegment(value: goal, label: Text(goal.shortLabel)),
+            ],
+            selected: {_nutritionGoal},
+            onSelectionChanged: _generating
+                ? null
+                : (selection) =>
+                      setState(() => _nutritionGoal = selection.first),
+            showSelectedIcon: false,
+            style: _compactSegments(theme),
+          ),
+          const SizedBox(height: Insets.md),
+          Container(
+            padding: const EdgeInsets.all(Insets.md),
+            decoration: BoxDecoration(
+              color: tokens.bg,
+              borderRadius: Radii.control,
+              border: Border.all(color: tokens.line),
             ),
-            label: Text(
-              _targetsApplied ? 'Targets added to plan' : 'Use in plan',
+            child: Text(
+              _targets?.summary ?? 'Enter weight, height and age.',
+              style: kFitMonoStyle.copyWith(
+                fontSize: 10.5,
+                height: 1.45,
+                letterSpacing: 0.1,
+                color: _targets == null ? tokens.dim : tokens.accent,
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(height: Insets.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonalIcon(
+              onPressed: _generating || _targets == null
+                  ? null
+                  : () => setState(() => _targetsApplied = !_targetsApplied),
+              icon: Icon(
+                _targetsApplied
+                    ? Icons.check_rounded
+                    : Icons.calculate_outlined,
+                size: 15,
+              ),
+              label: Text(
+                _targetsApplied ? 'Targets added to plan' : 'Use in plan',
+              ),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 38),
+                backgroundColor: tokens.accent.withValues(alpha: 0.12),
+                foregroundColor: tokens.accent,
+                disabledBackgroundColor: Colors.transparent,
+                disabledForegroundColor: tokens.dim,
+                textStyle: theme.textTheme.labelMedium,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Insets.md,
+                  vertical: Insets.sm,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _modelCard(ThemeData theme) => AppCard(
     child: Column(
@@ -1175,9 +1291,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   ButtonStyle _compactSegments(ThemeData theme) => ButtonStyle(
     visualDensity: VisualDensity.compact,
-    padding: const WidgetStatePropertyAll(
-      EdgeInsets.symmetric(horizontal: 4),
-    ),
+    padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 4)),
     textStyle: WidgetStatePropertyAll(
       theme.textTheme.bodySmall!.copyWith(fontSize: 11.5),
     ),
@@ -1242,44 +1356,132 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _presetStrip(ThemeData theme, {required bool horizontal}) {
     if (horizontal) {
       return SizedBox(
-        height: 96,
+        height: 104,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: _presets.length,
           separatorBuilder: (context, index) =>
               const SizedBox(width: Insets.sm),
           itemBuilder: (context, index) => SizedBox(
-            width: 200,
-            child: _presetCard(theme, _presets[index]),
+            width: 208,
+            child: _presetCard(theme, _presets[index], index),
           ),
         ),
       );
     }
+    final tokens = context.fit;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionLabel('Quick starts'),
-        const SizedBox(height: Insets.sm),
-        for (final preset in _presets)
-          Padding(
-            padding: const EdgeInsets.only(bottom: Insets.sm),
-            child: _presetCard(theme, preset),
+        const SectionLabel('Quick start'),
+        const SizedBox(height: Insets.md),
+        Material(
+          color: tokens.raised,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: Radii.card,
+            side: BorderSide(color: tokens.line),
           ),
+          child: Column(
+            children: [
+              for (var index = 0; index < _presets.length; index++)
+                _presetRow(theme, _presets[index], index),
+            ],
+          ),
+        ),
       ],
     );
   }
 
-  Widget _presetCard(ThemeData theme, _Preset preset) => AppCard(
-    padding: const EdgeInsets.all(Insets.md),
-    onTap: _generating || _model == null
-        ? null
-        : () => _generate(request: preset.request),
-    child: Row(
-      children: [
-        Expanded(
-          child: Column(
+  Widget _presetRow(ThemeData theme, _Preset preset, int index) {
+    final tokens = context.fit;
+    return InkWell(
+      onTap: _generating || _model == null
+          ? null
+          : () => _generate(request: preset.request),
+      hoverColor: tokens.accent.withValues(alpha: 0.045),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            top: index == 0 ? BorderSide.none : BorderSide(color: tokens.line),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: Insets.md,
+          vertical: Insets.md,
+        ),
+        child: Row(
+          children: [
+            Text(
+              '0${index + 1}',
+              style: kFitMonoStyle.copyWith(
+                fontSize: 10,
+                letterSpacing: 0.6,
+                color: tokens.dim,
+              ),
+            ),
+            const SizedBox(width: Insets.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    preset.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium!.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: tokens.text,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    preset.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      fontSize: 11,
+                      color: tokens.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: Insets.sm),
+            Icon(Icons.north_east_rounded, size: 15, color: tokens.dim),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _presetCard(ThemeData theme, _Preset preset, int index) {
+    final tokens = context.fit;
+    return AppCard(
+      padding: const EdgeInsets.all(Insets.md),
+      onTap: _generating || _model == null
+          ? null
+          : () => _generate(request: preset.request),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Text(
+                '0${index + 1}',
+                style: kFitMonoStyle.copyWith(
+                  fontSize: 9,
+                  letterSpacing: 0.6,
+                  color: tokens.dim,
+                ),
+              ),
+              const Spacer(),
+              Icon(Icons.north_east_rounded, color: tokens.accent, size: 15),
+            ],
+          ),
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
                 preset.title,
@@ -1287,6 +1489,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium!.copyWith(
                   fontWeight: FontWeight.w600,
+                  color: tokens.text,
                 ),
               ),
               const SizedBox(height: 2),
@@ -1295,34 +1498,50 @@ class _HomeScreenState extends State<HomeScreen> {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall!.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: 11,
+                  color: tokens.muted,
                 ),
               ),
             ],
           ),
-        ),
-        Icon(
-          Icons.play_arrow_rounded,
-          color: theme.colorScheme.primary,
-          size: 20,
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 
   Widget _generateButton(ThemeData theme, {required bool expanded}) {
+    final tokens = context.fit;
     final button = _generating
-        ? FilledButton.tonalIcon(
+        ? OutlinedButton.icon(
             key: const ValueKey('generate_button'),
             onPressed: _cancel,
-            icon: const Icon(Icons.stop_circle_outlined),
+            icon: const Icon(Icons.stop_rounded, size: 17),
             label: const Text('Stop'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 52),
+              side: BorderSide(color: tokens.lineStrong),
+              foregroundColor: tokens.text,
+            ),
           )
         : FilledButton.icon(
             key: const ValueKey('generate_button'),
             onPressed: _model == null ? null : () => _generate(),
-            icon: const Icon(Icons.auto_awesome),
+            icon: const Icon(Icons.bolt_rounded, size: 18),
             label: const Text('Generate plan'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 52),
+              backgroundColor: tokens.accent,
+              foregroundColor: tokens.onAccent,
+              disabledBackgroundColor: tokens.line,
+              disabledForegroundColor: tokens.dim,
+              textStyle: theme.textTheme.labelLarge!.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
+              shape: const RoundedRectangleBorder(borderRadius: Radii.control),
+              elevation: 0,
+            ),
           );
     return expanded ? SizedBox(width: double.infinity, child: button) : button;
   }
@@ -1330,44 +1549,71 @@ class _HomeScreenState extends State<HomeScreen> {
   // Workspace ----------------------------------------------------------------
 
   Widget _buildWorkspace(ThemeData theme) {
+    final tokens = context.fit;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(
+            Insets.xxl,
+            Insets.xl,
             Insets.xl,
             Insets.lg,
-            Insets.md,
-            Insets.md,
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: _statusLine(theme)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'TODAY',
+                      style: theme.textTheme.labelSmall!.copyWith(
+                        fontSize: 8.5,
+                        letterSpacing: 2,
+                        color: tokens.dim,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      _plan != null || _streamText.value.isNotEmpty
+                          ? 'Your plan'
+                          : 'Training journal',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineMedium!.copyWith(
+                        fontSize: 28,
+                        letterSpacing: -0.6,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    _statusLine(theme),
+                  ],
+                ),
+              ),
               const SizedBox(width: Insets.md),
               _modeToggle(theme, compact: false),
               const SizedBox(width: Insets.sm),
               IconButton(
                 tooltip: 'History',
                 onPressed: _openHistory,
-                icon: const Icon(Icons.history, size: 20),
+                icon: const Icon(Icons.history, size: 19),
               ),
               IconButton(
                 tooltip: 'Export Markdown',
                 onPressed: _hasPlan ? _exportPlan : null,
-                icon: const Icon(Icons.ios_share, size: 20),
+                icon: const Icon(Icons.ios_share, size: 19),
               ),
               IconButton(
                 tooltip: 'Copy plan',
                 onPressed: _hasPlan ? _copyPlan : null,
-                icon: const Icon(Icons.copy_all_outlined, size: 20),
+                icon: const Icon(Icons.copy_all_outlined, size: 19),
               ),
             ],
           ),
         ),
-        Divider(
-          height: 1,
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        Divider(height: 1, color: tokens.line),
         Expanded(child: _workspaceBody(theme, padded: false)),
         _chatDock(theme),
       ],
@@ -1376,57 +1622,82 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// The collapsible Ask Coach dock at the bottom of the desktop workspace.
   Widget _chatDock(ThemeData theme) {
+    final tokens = context.fit;
+    final questions = _chatMessages.where((m) => m.fromUser).length;
     return Material(
-      color: theme.colorScheme.surfaceContainerLowest,
+      color: tokens.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Divider(
-            height: 1,
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-          ),
+          Container(height: 1, color: tokens.line),
           InkWell(
             onTap: () => setState(() => _chatOpen = !_chatOpen),
+            hoverColor: tokens.accent.withValues(alpha: 0.03),
             child: Padding(
               padding: const EdgeInsets.symmetric(
-                horizontal: Insets.xl,
+                horizontal: Insets.xxl,
                 vertical: Insets.md,
               ),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.forum_outlined,
-                    size: 18,
-                    color: theme.colorScheme.primary,
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: tokens.accent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(Radii.sm),
+                    ),
+                    child: Icon(
+                      Icons.forum_outlined,
+                      size: 15,
+                      color: tokens.accent,
+                    ),
                   ),
-                  const SizedBox(width: Insets.sm),
+                  const SizedBox(width: Insets.md),
                   Text(
                     'Ask Coach',
                     style: theme.textTheme.titleSmall!.copyWith(
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(width: Insets.sm),
                   if (_chatMessages.isNotEmpty)
                     StatChip(
-                      label: '${_chatMessages.where((m) => m.fromUser).length}'
-                          ' questions',
+                      label: '$questions question${questions == 1 ? '' : 's'}',
+                      dot: tokens.accent,
                     ),
                   const Spacer(),
                   if (_chatSending)
                     Padding(
-                      padding: const EdgeInsets.only(right: Insets.sm),
-                      child: Text(
-                        'answering…',
-                        style: theme.textTheme.labelSmall!.copyWith(
-                          color: theme.colorScheme.primary,
-                        ),
+                      padding: const EdgeInsets.only(right: Insets.md),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.4,
+                              color: tokens.accent,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'answering',
+                            style: theme.textTheme.labelSmall!.copyWith(
+                              fontSize: 9,
+                              letterSpacing: 0.4,
+                              color: tokens.accent,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   Icon(
-                    _chatOpen ? Icons.expand_more : Icons.expand_less,
+                    _chatOpen
+                        ? Icons.keyboard_arrow_down_rounded
+                        : Icons.keyboard_arrow_up_rounded,
                     size: 20,
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: tokens.dim,
                   ),
                 ],
               ),
@@ -1527,29 +1798,41 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, streamText, _) {
         final error = _error;
         if (error != null) {
+          final tokens = context.fit;
           return Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
               child: Padding(
-                padding: const EdgeInsets.all(Insets.xl),
+                padding: const EdgeInsets.all(Insets.xxl),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.error_outline,
-                      color: theme.colorScheme.error,
-                      size: 34,
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: tokens.danger.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.error_outline,
+                        color: tokens.danger,
+                        size: 22,
+                      ),
                     ),
-                    const SizedBox(height: Insets.md),
+                    const SizedBox(height: Insets.lg),
                     Text(
                       'Generation failed',
-                      style: theme.textTheme.titleMedium,
+                      style: theme.textTheme.headlineSmall,
                     ),
                     const SizedBox(height: Insets.sm),
                     Text(
                       error,
                       textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall,
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: tokens.muted,
+                        height: 1.5,
+                      ),
                     ),
                   ],
                 ),
@@ -1596,10 +1879,10 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SingleChildScrollView(
         controller: _scrollController,
         padding: EdgeInsets.fromLTRB(
-          padded ? Insets.lg : Insets.xl,
-          Insets.lg,
-          padded ? Insets.lg : Insets.xl,
-          Insets.xxl,
+          padded ? Insets.xl : Insets.xxl,
+          Insets.xl,
+          padded ? Insets.xl : Insets.xxl,
+          Insets.huge,
         ),
         child: child,
       ),
@@ -1607,44 +1890,52 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _draftingPanel(ThemeData theme) {
+    final tokens = context.fit;
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: const BoxConstraints(maxWidth: 460),
         child: Padding(
-          padding: const EdgeInsets.all(Insets.xl),
+          padding: const EdgeInsets.all(Insets.xxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(
-                width: 46,
-                height: 46,
-                child: CircularProgressIndicator(strokeWidth: 3),
-              ),
-              const SizedBox(height: Insets.lg),
-              Text('Drafting your plan…', style: theme.textTheme.titleMedium),
-              const SizedBox(height: Insets.sm),
-              ValueListenableBuilder<Duration>(
-                valueListenable: _elapsed,
-                builder: (context, elapsed, _) =>
-                    ValueListenableBuilder<int>(
-                      valueListenable: _receivedChars,
-                      builder: (context, received, _) => Text(
-                        '${(elapsed.inMilliseconds / 1000).toStringAsFixed(1)}s'
-                        ' · $received characters received',
-                        style: theme.textTheme.bodyMedium!.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
+              Text(
+                'Writing your plan.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.displaySmall!.copyWith(fontSize: 34),
               ),
               const SizedBox(height: Insets.sm),
               Text(
-                'The model writes the whole JSON document before it is '
-                'parsed into the interactive plan.',
+                'The model drafts the full document, then OpenFit turns it '
+                'into an interactive plan.',
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall!.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  color: tokens.muted,
+                  height: 1.55,
+                ),
+              ),
+              const SizedBox(height: Insets.xxl),
+              SizedBox(
+                width: 190,
+                child: ClipRRect(
+                  borderRadius: Radii.pillRadius,
+                  child: const LinearProgressIndicator(minHeight: 3),
+                ),
+              ),
+              const SizedBox(height: Insets.lg),
+              ValueListenableBuilder<Duration>(
+                valueListenable: _elapsed,
+                builder: (context, elapsed, _) => ValueListenableBuilder<int>(
+                  valueListenable: _receivedChars,
+                  builder: (context, received, _) => Text(
+                    '${(elapsed.inMilliseconds / 1000).toStringAsFixed(1)}s'
+                    '  ·  $received chars',
+                    style: kFitMonoStyle.copyWith(
+                      fontSize: 11,
+                      letterSpacing: 0.4,
+                      color: tokens.accent,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1658,56 +1949,85 @@ class _HomeScreenState extends State<HomeScreen> {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const CircularProgressIndicator(),
+        SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: context.fit.accent,
+          ),
+        ),
         const SizedBox(height: Insets.md),
         Text(
           'Drafting the plan…',
-          style: theme.textTheme.bodySmall!.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
+          style: theme.textTheme.bodySmall!.copyWith(color: context.fit.muted),
         ),
       ],
     ),
   );
 
   Widget _emptyState(ThemeData theme) {
+    final tokens = context.fit;
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
+        constraints: const BoxConstraints(maxWidth: 540),
         child: Padding(
-          padding: const EdgeInsets.all(Insets.xl),
+          padding: const EdgeInsets.all(Insets.xxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(Insets.lg),
+                width: 76,
+                height: 76,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
+                  border: Border.all(color: tokens.line),
                 ),
-                child: Icon(
-                  Icons.fitness_center,
-                  size: 30,
-                  color: theme.colorScheme.primary,
+                child: Center(
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: tokens.accent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.bolt_rounded,
+                      size: 24,
+                      color: tokens.onAccent,
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: Insets.lg),
+              const SizedBox(height: Insets.xl),
               Text(
-                'No workout yet',
-                style: theme.textTheme.titleMedium!.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                'Train with intent.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.displaySmall!.copyWith(fontSize: 38),
               ),
-              const SizedBox(height: Insets.sm),
+              const SizedBox(height: Insets.md),
               Text(
                 _isNarrow
                     ? 'Pick a quick start or set the dials in Build, then '
-                          'tap Generate plan.'
-                    : 'Pick a template or set the dials on the left.',
+                          'generate a plan.'
+                    : 'Set the dials on the left, or start from a template. '
+                          'Every plan is yours to edit, run and keep.',
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall!.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  color: tokens.muted,
+                  height: 1.55,
                 ),
+              ),
+              const SizedBox(height: Insets.xl),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: Insets.sm,
+                runSpacing: Insets.sm,
+                children: const [
+                  StatChip(label: 'TYPED PLANS', dot: Color(0xFFC9F26B)),
+                  StatChip(label: 'LIVE TEXT', dot: Color(0xFF9BC4A5)),
+                  StatChip(label: 'LOCAL MODELS', dot: Color(0xFFF1A45E)),
+                ],
               ),
             ],
           ),
