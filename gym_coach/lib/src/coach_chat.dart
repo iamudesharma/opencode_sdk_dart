@@ -154,6 +154,7 @@ class _CoachChatPanelState extends State<CoachChatPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = context.fit;
     return Padding(
       padding: widget.padding,
       child: Column(
@@ -185,76 +186,139 @@ class _CoachChatPanelState extends State<CoachChatPanel> {
             ),
             const SizedBox(height: Insets.sm),
           ],
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              IconButton(
-                key: const ValueKey('coach_attach'),
-                tooltip: 'Attach file',
-                onPressed: widget.sending ? null : _pick,
-                icon: const Icon(Icons.attach_file, size: 20),
-              ),
-              Expanded(
-                child: TextField(
-                  key: const ValueKey('coach_input'),
-                  controller: _input,
-                  enabled: !widget.sending,
-                  minLines: 1,
-                  maxLines: 4,
-                  textInputAction: TextInputAction.newline,
-                  decoration: const InputDecoration(
-                    hintText: 'Ask your coach…',
+          Container(
+            padding: const EdgeInsets.all(Insets.xs),
+            decoration: BoxDecoration(
+              color: tokens.surface,
+              borderRadius: Radii.card,
+              border: Border.all(color: tokens.line),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                IconButton(
+                  key: const ValueKey('coach_attach'),
+                  tooltip: 'Attach file',
+                  onPressed: widget.sending ? null : _pick,
+                  icon: const Icon(Icons.attach_file, size: 18),
+                ),
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('coach_input'),
+                    controller: _input,
+                    enabled: !widget.sending,
+                    minLines: 1,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.newline,
+                    style: theme.textTheme.bodyMedium,
+                    decoration: InputDecoration(
+                      hintText: 'Ask your coach…',
+                      filled: false,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: Insets.xs,
+                        vertical: 11,
+                      ),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: Insets.sm),
-              if (widget.sending)
-                FilledButton.tonalIcon(
-                  key: const ValueKey('coach_stop'),
-                  onPressed: widget.onStop,
-                  icon: const Icon(Icons.stop_circle_outlined, size: 18),
-                  label: const Text('Stop'),
-                )
-              else
-                FilledButton.icon(
-                  key: const ValueKey('coach_send'),
-                  onPressed: _send,
-                  icon: const Icon(Icons.send_rounded, size: 18),
-                  label: const Text('Send'),
-                ),
-            ],
+                const SizedBox(width: Insets.xs),
+                if (widget.sending)
+                  IconButton.filledTonal(
+                    key: const ValueKey('coach_stop'),
+                    tooltip: 'Stop',
+                    onPressed: widget.onStop,
+                    icon: const Icon(Icons.stop_rounded, size: 18),
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(40, 40),
+                    ),
+                  )
+                else
+                  IconButton.filled(
+                    key: const ValueKey('coach_send'),
+                    tooltip: 'Send',
+                    onPressed: _send,
+                    icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(40, 40),
+                      backgroundColor: tokens.accent,
+                      foregroundColor: tokens.onAccent,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildEmpty(ThemeData theme) => Center(
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 420),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.forum_outlined,
-            size: 34,
-            color: theme.colorScheme.primary.withValues(alpha: 0.8),
+  Widget _buildEmpty(ThemeData theme) {
+    final tokens = context.fit;
+    return Center(
+      child: SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SectionLabel('Ask Coach'),
+              const SizedBox(height: Insets.md),
+              Text(
+                'A second opinion,\nany time.',
+                style: theme.textTheme.headlineMedium!.copyWith(
+                  fontSize: 28,
+                  height: 1.15,
+                  color: tokens.text,
+                ),
+              ),
+              const SizedBox(height: Insets.sm),
+              Text(
+                'Substitutions, soreness, travel weeks or food — the coach keeps '
+                'the whole conversation in context.',
+                style: theme.textTheme.bodySmall!.copyWith(
+                  color: tokens.muted,
+                  height: 1.55,
+                ),
+              ),
+              const SizedBox(height: Insets.xl),
+              for (final prompt in const [
+                'Swap squats for something knee-friendly',
+                'Build a 20-minute hotel-room session',
+                'How should I eat on rest days?',
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Insets.sm),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.arrow_outward_rounded,
+                        size: 13,
+                        color: tokens.dim,
+                      ),
+                      const SizedBox(width: Insets.sm),
+                      Expanded(
+                        child: Text(
+                          prompt,
+                          style: theme.textTheme.bodySmall!.copyWith(
+                            fontSize: 11.5,
+                            color: tokens.muted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(height: Insets.md),
-          Text('Ask your coach', style: theme.textTheme.titleSmall),
-          const SizedBox(height: Insets.xs),
-          Text(
-            'Questions about your plan, substitutions, soreness or food — '
-            'the coach keeps the whole conversation in context.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall!.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// One bubble, with the reasoning block and the rebuild action for replies.
@@ -268,6 +332,7 @@ class _ChatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     if (message.fromUser) {
+      final tokens = context.fit;
       return Align(
         alignment: Alignment.centerRight,
         child: Container(
@@ -277,25 +342,27 @@ class _ChatBubble extends StatelessWidget {
             vertical: Insets.sm,
           ),
           decoration: BoxDecoration(
-            color: theme.colorScheme.primaryContainer,
+            color: tokens.accent.withValues(alpha: 0.12),
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(Radii.lg),
               topRight: Radius.circular(Radii.lg),
               bottomLeft: Radius.circular(Radii.lg),
               bottomRight: Radius.circular(Insets.xs),
             ),
+            border: Border.all(color: tokens.accent.withValues(alpha: 0.25)),
           ),
           child: Text(
             message.text,
             style: theme.textTheme.bodyMedium!.copyWith(
-              color: theme.colorScheme.onPrimaryContainer,
-              height: 1.4,
+              color: tokens.text,
+              height: 1.45,
             ),
           ),
         ),
       );
     }
 
+    final tokens = context.fit;
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -303,6 +370,34 @@ class _ChatBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: tokens.accent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Icon(
+                    Icons.bolt_rounded,
+                    size: 11,
+                    color: tokens.accent,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'COACH',
+                  style: theme.textTheme.labelSmall!.copyWith(
+                    fontSize: 8.5,
+                    letterSpacing: 1.5,
+                    color: tokens.dim,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
             _ReasoningBlock(reasoning: message.reasoning),
             ValueListenableBuilder<bool>(
               valueListenable: message.streaming,
@@ -319,18 +414,14 @@ class _ChatBubble extends StatelessWidget {
                           vertical: Insets.sm,
                         ),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHigh,
+                          color: tokens.raised,
                           borderRadius: const BorderRadius.only(
                             topLeft: Radius.circular(Insets.xs),
                             topRight: Radius.circular(Radii.lg),
                             bottomLeft: Radius.circular(Radii.lg),
                             bottomRight: Radius.circular(Radii.lg),
                           ),
-                          border: Border.all(
-                            color: theme.colorScheme.outlineVariant.withValues(
-                              alpha: 0.4,
-                            ),
-                          ),
+                          border: Border.all(color: tokens.line),
                         ),
                         child: text.isEmpty && streaming
                             ? Row(
@@ -340,16 +431,15 @@ class _ChatBubble extends StatelessWidget {
                                     width: 12,
                                     height: 12,
                                     child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: theme.colorScheme.primary,
+                                      strokeWidth: 1.6,
+                                      color: tokens.accent,
                                     ),
                                   ),
                                   const SizedBox(width: Insets.sm),
                                   Text(
                                     'Thinking…',
                                     style: theme.textTheme.bodySmall!.copyWith(
-                                      color:
-                                          theme.colorScheme.onSurfaceVariant,
+                                      color: tokens.muted,
                                     ),
                                   ),
                                 ],
@@ -360,14 +450,12 @@ class _ChatBubble extends StatelessWidget {
                                     TextSpan(
                                       text: text,
                                       style: theme.textTheme.bodyMedium!
-                                          .copyWith(height: 1.45),
+                                          .copyWith(height: 1.5),
                                     ),
                                     if (streaming)
                                       TextSpan(
                                         text: '\u258C',
-                                        style: TextStyle(
-                                          color: theme.colorScheme.primary,
-                                        ),
+                                        style: TextStyle(color: tokens.accent),
                                       ),
                                   ],
                                 ),
@@ -382,7 +470,9 @@ class _ChatBubble extends StatelessWidget {
                 child: Text(
                   'Stopped by the athlete.',
                   style: theme.textTheme.labelSmall!.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                    fontSize: 9,
+                    letterSpacing: 0.5,
+                    color: tokens.dim,
                   ),
                 ),
               ),
@@ -425,6 +515,7 @@ class _ReasoningBlockState extends State<_ReasoningBlock> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = context.fit;
     return ValueListenableBuilder<String>(
       valueListenable: widget.reasoning,
       builder: (context, reasoning, _) {
@@ -439,7 +530,7 @@ class _ReasoningBlockState extends State<_ReasoningBlock> {
                 onTap: () => setState(() => _open = !_open),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: Insets.sm,
+                    horizontal: Insets.xs,
                     vertical: Insets.xs,
                   ),
                   child: Row(
@@ -447,20 +538,25 @@ class _ReasoningBlockState extends State<_ReasoningBlock> {
                     children: [
                       Icon(
                         Icons.lightbulb_outline,
-                        size: 14,
-                        color: theme.colorScheme.onSurfaceVariant,
+                        size: 13,
+                        color: tokens.dim,
                       ),
-                      const SizedBox(width: Insets.xs),
+                      const SizedBox(width: 5),
                       Text(
-                        'Thought',
+                        'THOUGHT',
                         style: theme.textTheme.labelSmall!.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 8.5,
+                          letterSpacing: 1.3,
+                          color: tokens.dim,
                         ),
                       ),
+                      const SizedBox(width: 2),
                       Icon(
-                        _open ? Icons.expand_less : Icons.expand_more,
-                        size: 16,
-                        color: theme.colorScheme.onSurfaceVariant,
+                        _open
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        size: 15,
+                        color: tokens.dim,
                       ),
                     ],
                   ),
@@ -468,18 +564,23 @@ class _ReasoningBlockState extends State<_ReasoningBlock> {
               ),
               if (_open)
                 Container(
-                  margin: const EdgeInsets.only(top: Insets.xs),
-                  padding: const EdgeInsets.all(Insets.sm),
+                  margin: const EdgeInsets.only(top: Insets.xs, left: 2),
+                  padding: const EdgeInsets.only(left: Insets.md),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLow,
-                    borderRadius: Radii.control,
+                    border: Border(
+                      left: BorderSide(
+                        color: tokens.accent.withValues(alpha: 0.4),
+                        width: 2,
+                      ),
+                    ),
                   ),
                   child: Text(
                     reasoning,
                     style: theme.textTheme.bodySmall!.copyWith(
+                      fontSize: 11.5,
                       fontStyle: FontStyle.italic,
-                      color: theme.colorScheme.onSurfaceVariant,
-                      height: 1.4,
+                      color: tokens.muted,
+                      height: 1.5,
                     ),
                   ),
                 ),

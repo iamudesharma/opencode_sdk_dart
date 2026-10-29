@@ -121,11 +121,13 @@ class _CockpitComposerState extends State<CockpitComposer> {
       child: Align(
         alignment: Alignment.bottomLeft,
         child: Material(
-          elevation: 10,
-          shadowColor: Colors.black54,
-          color: theme.colorScheme.surfaceContainerHigh,
+          elevation: 0,
+          color: theme.colorScheme.surfaceContainer,
           clipBehavior: Clip.antiAlias,
-          borderRadius: BorderRadius.circular(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(color: theme.hairline),
+          ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(
               minWidth: 300,
@@ -137,26 +139,24 @@ class _CockpitComposerState extends State<CockpitComposer> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                  padding: const EdgeInsets.fromLTRB(11, 8, 11, 6),
                   child: Row(
                     children: [
                       Icon(
                         Icons.alternate_email_rounded,
-                        size: 13,
-                        color: theme.colorScheme.onSurfaceVariant,
+                        size: 12,
+                        color: theme.colorScheme.outline,
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'Reference files',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          letterSpacing: 0.4,
-                        ),
+                        'REFERENCE FILES',
+                        style: theme.microLabel.copyWith(fontSize: 8),
                       ),
                       const Spacer(),
                       Text(
                         '${candidates.length}',
-                        style: theme.textTheme.labelSmall?.copyWith(
+                        style: kMonoTextStyle.copyWith(
+                          fontSize: 9.5,
                           color: theme.colorScheme.outline,
                         ),
                       ),
@@ -166,7 +166,7 @@ class _CockpitComposerState extends State<CockpitComposer> {
                 Flexible(
                   child: ListView.builder(
                     shrinkWrap: true,
-                    padding: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.only(bottom: 5),
                     itemCount: candidates.length,
                     itemBuilder: (context, index) {
                       final candidate = candidates[index];
@@ -174,13 +174,9 @@ class _CockpitComposerState extends State<CockpitComposer> {
                       return InkWell(
                         onTap: () => _insertReference('${candidate.path}'),
                         child: Container(
-                          color: selected
-                              ? theme.colorScheme.primaryContainer.withValues(
-                                  alpha: 0.4,
-                                )
-                              : null,
+                          color: selected ? theme.accentSoft : null,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
+                            horizontal: 11,
                             vertical: 6,
                           ),
                           child: Row(
@@ -189,15 +185,16 @@ class _CockpitComposerState extends State<CockpitComposer> {
                                 candidate.type == FileSystemEntryType.directory
                                     ? Icons.folder_outlined
                                     : Icons.description_outlined,
-                                size: 14,
-                                color: theme.colorScheme.onSurfaceVariant,
+                                size: 13,
+                                color: theme.colorScheme.outline,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   '${candidate.path}',
                                   style: kMonoTextStyle.copyWith(
-                                    fontSize: 12.5,
+                                    fontSize: 11.5,
+                                    color: theme.colorScheme.onSurface,
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -283,83 +280,113 @@ class _CockpitComposerState extends State<CockpitComposer> {
     if (_highlighted >= candidates.length) _highlighted = 0;
     return Container(
       decoration: BoxDecoration(
-        color: theme.panelBackground,
-        border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-          ),
-        ),
+        color: theme.chromeBackground,
+        border: Border(top: BorderSide(color: theme.hairline)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 920),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: CompositedTransformTarget(
-                  link: _mentionLink,
-                  child: Focus(
-                    onKeyEvent: _onKey,
-                    child: TextField(
-                      controller: controller.composer,
-                      focusNode: controller.composerFocus,
-                      enabled: widget.enabled,
-                      minLines: 1,
-                      maxLines: 8,
-                      autofocus: true,
-                      textInputAction: TextInputAction.newline,
-                      keyboardType: TextInputType.multiline,
-                      style: theme.textTheme.bodyMedium,
-                      decoration: InputDecoration(
-                        hintText:
-                            'Message OpenCode\u2026  '
-                            '(@ to reference files)',
-                        filled: true,
-                        fillColor: theme.colorScheme.surfaceContainerHighest
-                            .withValues(alpha: 0.5),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 11,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide.none,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: CompositedTransformTarget(
+                      link: _mentionLink,
+                      child: Focus(
+                        onKeyEvent: _onKey,
+                        child: TextField(
+                          controller: controller.composer,
+                          focusNode: controller.composerFocus,
+                          enabled: widget.enabled,
+                          minLines: 1,
+                          maxLines: 8,
+                          autofocus: true,
+                          textInputAction: TextInputAction.newline,
+                          keyboardType: TextInputType.multiline,
+                          style: theme.textTheme.bodyMedium,
+                          decoration: InputDecoration(
+                            hintText:
+                                'Message OpenCode\u2026  '
+                                '(@ to reference files)',
+                            filled: true,
+                            fillColor: theme.colorScheme.surfaceContainerLow,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(color: theme.hairline),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(color: theme.hairline),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: theme.colorScheme.primary,
+                                width: 1.2,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  if (widget.busy) ...[
+                    IconButton.filledTonal(
+                      tooltip: 'Interrupt execution',
+                      onPressed: controller.interrupt,
+                      icon: const Icon(Icons.stop_rounded, size: 18),
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(36, 36),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  IconButton.filled(
+                    tooltip: widget.busy ? 'Queue message' : 'Send',
+                    onPressed: widget.enabled && _hasText ? _submit : null,
+                    icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(36, 36),
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
+                      disabledBackgroundColor:
+                          theme.colorScheme.surfaceContainerHigh,
+                      disabledForegroundColor: theme.colorScheme.outline,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              if (widget.busy) ...[
-                IconButton.filledTonal(
-                  tooltip: 'Interrupt execution',
-                  onPressed: controller.interrupt,
-                  icon: const Icon(Icons.stop_rounded, size: 20),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: Text(
+                  'ENTER TO SEND  \u00b7  SHIFT+ENTER FOR A NEWLINE  \u00b7  '
+                  '\u2318K COMMAND PALETTE',
+                  style: theme.microLabel.copyWith(
+                    fontSize: 8,
+                    letterSpacing: 1.1,
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
-                const SizedBox(width: 6),
-              ],
-              IconButton.filled(
-                tooltip: widget.busy ? 'Queue message' : 'Send',
-                onPressed: widget.enabled && _hasText ? _submit : null,
-                icon: const Icon(Icons.arrow_upward_rounded, size: 20),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.only(left: 4),
-            child: Text(
-              'Enter to send \u00b7 Shift+Enter for a newline \u00b7 '
-              '\u2318K for the command palette',
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

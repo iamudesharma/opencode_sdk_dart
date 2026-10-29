@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:opencode_sdk_dart/opencode_sdk_dart.dart';
 
 import '../cockpit_controller.dart';
+import '../theme.dart';
 import 'transcript.dart';
 
 /// Explorer column when the Sessions tab is active: searchable session tree.
@@ -18,34 +19,48 @@ class SessionExplorer extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          padding: const EdgeInsets.fromLTRB(12, 12, 8, 4),
           child: Row(
             children: [
-              Expanded(
-                child: TextField(
-                  onChanged: (value) {
-                    controller.sessionFilter = value;
-                    controller.selectExplorerTab(ExplorerTab.sessions);
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Search sessions',
-                    isDense: true,
-                    prefixIcon: const Icon(Icons.search_rounded, size: 16),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  style: theme.textTheme.bodySmall,
+              Text('SESSIONS', style: theme.microLabel.copyWith(fontSize: 8.5)),
+              const SizedBox(width: 8),
+              Text(
+                '${roots.length}',
+                style: kMonoTextStyle.copyWith(
+                  fontSize: 9,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-              const SizedBox(width: 8),
+              const Spacer(),
               IconButton(
                 tooltip: 'New session',
                 onPressed: () => controller.newSession(),
-                icon: const Icon(Icons.add_rounded, size: 18),
+                icon: const Icon(Icons.add_rounded, size: 17),
               ),
             ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: TextField(
+            onChanged: (value) {
+              controller.sessionFilter = value;
+              controller.selectExplorerTab(ExplorerTab.sessions);
+            },
+            decoration: InputDecoration(
+              hintText: 'Search sessions',
+              isDense: true,
+              prefixIcon: const Icon(Icons.search_rounded, size: 15),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 34,
+                minHeight: 32,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            style: theme.textTheme.bodySmall,
           ),
         ),
         if (controller.loadingSessions && roots.isEmpty)
@@ -98,21 +113,19 @@ class SessionTile extends StatelessWidget {
     final busy = controller.busySessionIDs.contains(session.id);
     final cost = controller.usage[session.id]?.cost ?? session.cost;
     return Padding(
-      padding: EdgeInsets.only(bottom: 3, left: node.depth * 14),
+      padding: EdgeInsets.only(bottom: 2, left: node.depth * 14),
       child: Material(
-        color: selected
-            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.45)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
+        color: selected ? theme.accentSoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(7),
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(7),
           onTap: () => controller.openSession(session),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(6, 7, 6, 7),
+            padding: const EdgeInsets.fromLTRB(6, 6, 4, 6),
             child: Row(
               children: [
                 SizedBox(
-                  width: 20,
+                  width: 18,
                   child: node.childrenLoaded && node.children.isEmpty
                       ? const SizedBox.shrink()
                       : InkWell(
@@ -121,23 +134,23 @@ class SessionTile extends StatelessWidget {
                             node.expanded
                                 ? Icons.keyboard_arrow_down_rounded
                                 : Icons.keyboard_arrow_right_rounded,
-                            size: 16,
-                            color: theme.colorScheme.outline,
+                            size: 15,
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
                 ),
                 if (busy)
                   const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 1.8),
+                    width: 11,
+                    height: 11,
+                    child: CircularProgressIndicator(strokeWidth: 1.6),
                   )
                 else
                   Icon(
                     node.depth > 0
                         ? Icons.subdirectory_arrow_right_rounded
                         : Icons.chat_bubble_outline_rounded,
-                    size: 13,
+                    size: 12,
                     color: selected
                         ? theme.colorScheme.primary
                         : theme.colorScheme.outline,
@@ -153,7 +166,11 @@ class SessionTile extends StatelessWidget {
                             : 'Untitled session',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
+                        style: theme.textTheme.bodySmall!.copyWith(
+                          fontSize: 11.5,
+                          color: selected
+                              ? theme.colorScheme.onSurface
+                              : theme.colorScheme.onSurfaceVariant,
                           fontWeight: selected
                               ? FontWeight.w600
                               : FontWeight.w400,
@@ -169,8 +186,8 @@ class SessionTile extends StatelessWidget {
                                 padding: const EdgeInsets.only(right: 6),
                                 child: Icon(
                                   Icons.account_tree_outlined,
-                                  size: 10,
-                                  color: theme.colorScheme.outline,
+                                  size: 9,
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ),
@@ -180,7 +197,8 @@ class SessionTile extends StatelessWidget {
                               '\$${cost.toStringAsFixed(4)}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall?.copyWith(
+                              style: kMonoTextStyle.copyWith(
+                                fontSize: 9,
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),

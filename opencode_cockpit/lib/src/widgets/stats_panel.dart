@@ -82,12 +82,15 @@ class StatsPanel extends StatelessWidget {
         else ...[
           Row(
             children: [
-              Text(
-                '${tools.totals.calls} calls \u00b7 '
-                '${tools.totals.succeeded} ok \u00b7 '
-                '${tools.totals.failed} failed',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+              Expanded(
+                child: Text(
+                  '${tools.totals.calls} calls \u00b7 '
+                  '${tools.totals.succeeded} ok \u00b7 '
+                  '${tools.totals.failed} failed',
+                  maxLines: 2,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],

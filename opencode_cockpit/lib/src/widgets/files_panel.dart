@@ -157,8 +157,10 @@ class FilesPanel extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
           child: Text(
             'Click to open \u00b7 right-click to insert @reference',
+            maxLines: 2,
             style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: 0.2,
             ),
           ),
         ),

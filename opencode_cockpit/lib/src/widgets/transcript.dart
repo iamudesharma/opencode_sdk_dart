@@ -38,12 +38,12 @@ class TranscriptView extends StatelessWidget {
     final headerCount = hasOlder ? 1 : 0;
     return ListView.builder(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+      padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
       itemCount: visible.length + headerCount,
       itemBuilder: (context, index) {
         if (headerCount == 1 && index == 0) {
           return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.only(bottom: 20),
             child: Center(
               child: loadingOlder
                   ? const SizedBox(
@@ -53,20 +53,28 @@ class TranscriptView extends StatelessWidget {
                     )
                   : OutlinedButton.icon(
                       onPressed: onLoadEarlier,
-                      icon: const Icon(Icons.history_rounded, size: 16),
+                      icon: const Icon(Icons.history_rounded, size: 15),
                       label: const Text('Load earlier messages'),
                     ),
             ),
           );
         }
         final message = visible[index - headerCount];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 18),
-          child: switch (message.role) {
-            ChatRole.user => UserBubble(message: message),
-            ChatRole.assistant => AssistantMessage(message: message),
-            ChatRole.notice => NoticePill(text: message.notice ?? message.text),
-          },
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 880),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 22),
+              child: switch (message.role) {
+                ChatRole.user => UserBubble(message: message),
+                ChatRole.assistant => AssistantMessage(message: message),
+                ChatRole.notice => NoticePill(
+                  text: message.notice ?? message.text,
+                ),
+              },
+            ),
+          ),
         );
       },
     );
@@ -83,32 +91,47 @@ class _EmptyTranscript extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     if (loading) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2.4));
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2.2));
     }
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.terminal_rounded,
-            size: 46,
-            color: theme.colorScheme.primary.withValues(alpha: 0.7),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            hasSession ? 'Start the conversation' : 'Pick or create a session',
-            style: theme.textTheme.titleMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            hasSession
-                ? 'Type a message below and press Enter. Use @ to reference files.'
-                : 'Open the Sessions panel on the left.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: theme.hairline),
+              ),
+              child: Icon(
+                Icons.terminal_rounded,
+                size: 21,
+                color: theme.colorScheme.primary,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 18),
+            Text(
+              hasSession ? 'Ready when you are' : 'No session open',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              hasSession
+                  ? 'Type a message below. Use @ to reference files and \u2318K '
+                        'for the command palette.'
+                  : 'Pick a session from the explorer, or create a new one.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall!.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -125,24 +148,24 @@ class UserBubble extends StatelessWidget {
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 640),
+        constraints: const BoxConstraints(maxWidth: 620),
         decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+          color: theme.colorScheme.primary.withValues(alpha: 0.1),
           borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(18),
-            topRight: Radius.circular(18),
-            bottomLeft: Radius.circular(18),
-            bottomRight: Radius.circular(6),
+            topLeft: Radius.circular(14),
+            topRight: Radius.circular(14),
+            bottomLeft: Radius.circular(14),
+            bottomRight: Radius.circular(4),
           ),
           border: Border.all(
-            color: theme.colorScheme.primary.withValues(alpha: 0.25),
+            color: theme.colorScheme.primary.withValues(alpha: 0.22),
           ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: MarkdownLite(
           text: message.text,
           style: theme.textTheme.bodyMedium!.copyWith(
-            color: theme.colorScheme.onPrimaryContainer,
+            color: theme.colorScheme.onSurface,
           ),
         ),
       ),
@@ -230,60 +253,80 @@ class _AssistantHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final agent = message.agent ?? 'assistant';
     final model = message.model;
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            agent,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 680;
+        return Row(
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: theme.accentSoft,
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Icon(
+                Icons.smart_toy_outlined,
+                size: 11,
+                color: theme.colorScheme.primary,
+              ),
             ),
-          ),
-        ),
-        if (model != null) ...[
-          const SizedBox(width: 8),
-          Text(
-            '${model.providerID}/${model.id}',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+            const SizedBox(width: 7),
+            Text(
+              agent,
+              style: theme.textTheme.labelLarge!.copyWith(
+                fontSize: 11.5,
+                color: theme.colorScheme.onSurface,
+              ),
             ),
-          ),
-        ],
-        const SizedBox(width: 8),
-        Text(
-          clock(message.time),
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline,
-          ),
-        ),
-        if (message.streaming) ...[
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 11,
-            height: 11,
-            child: CircularProgressIndicator(
-              strokeWidth: 1.6,
-              color: theme.colorScheme.primary,
+            if (model != null) ...[
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '${model.providerID}/${model.id}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: kMonoTextStyle.copyWith(
+                    fontSize: 9.5,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 8),
+            Text(
+              clock(message.time),
+              style: kMonoTextStyle.copyWith(
+                fontSize: 9.5,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
-        ],
-        if (message.cost != null && message.tokens != null) ...[
-          const SizedBox(width: 8),
-          Text(
-            '${compactTokens(message.tokens!.input)} in / '
-            '${compactTokens(message.tokens!.output)} out \u00b7 '
-            '\$${message.cost!.toStringAsFixed(4)}',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
-          ),
-        ],
-      ],
+            if (message.streaming) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 10,
+                height: 10,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.4,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+            if (!compact && message.cost != null && message.tokens != null) ...[
+              const Spacer(),
+              Text(
+                '${compactTokens(message.tokens!.input)} in / '
+                '${compactTokens(message.tokens!.output)} out \u00b7 '
+                '\$${message.cost!.toStringAsFixed(4)}',
+                style: kMonoTextStyle.copyWith(
+                  fontSize: 9.5,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -311,39 +354,41 @@ class _ReasoningBlockState extends State<ReasoningBlock> {
     return Container(
       constraints: const BoxConstraints(minWidth: 260),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+        border: Border(
+          left: BorderSide(
+            color: theme.colorScheme.primary.withValues(alpha: 0.35),
+            width: 2,
+          ),
         ),
-        color: theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.5),
       ),
+      padding: const EdgeInsets.only(left: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(6),
             onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 3),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     Icons.psychology_outlined,
-                    size: 15,
+                    size: 13,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.streaming ? 'Thinking\u2026' : 'Thought process',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
                   const SizedBox(width: 6),
+                  Text(
+                    widget.streaming ? 'THINKING' : 'THOUGHT PROCESS',
+                    style: theme.microLabel.copyWith(fontSize: 8.5),
+                  ),
+                  const SizedBox(width: 4),
                   Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 16,
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 15,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ],
@@ -352,13 +397,14 @@ class _ReasoningBlockState extends State<ReasoningBlock> {
           ),
           if (_expanded)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              padding: const EdgeInsets.only(top: 4, bottom: 2),
               child: MarkdownLite(
                 text: widget.part.text,
                 streaming: widget.streaming,
                 style: theme.textTheme.bodySmall!.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                   fontStyle: FontStyle.italic,
+                  height: 1.55,
                 ),
               ),
             ),
@@ -385,10 +431,10 @@ class _ToolCardState extends State<ToolCard> {
     final theme = Theme.of(context);
     final part = widget.part;
     final status = switch (part.status) {
-      ChatToolStatus.streaming => ('Preparing', theme.colorScheme.outline),
-      ChatToolStatus.running => ('Running', theme.colorScheme.tertiary),
-      ChatToolStatus.completed => ('Done', theme.colorScheme.primary),
-      ChatToolStatus.failed => ('Failed', theme.colorScheme.error),
+      ChatToolStatus.streaming => ('PREPARING', theme.colorScheme.outline),
+      ChatToolStatus.running => ('RUNNING', theme.colorScheme.tertiary),
+      ChatToolStatus.completed => ('DONE', theme.success),
+      ChatToolStatus.failed => ('FAILED', theme.colorScheme.error),
     };
     final hasDetails =
         part.input.isNotEmpty ||
@@ -396,56 +442,64 @@ class _ToolCardState extends State<ToolCard> {
         (part.output != null && part.output!.isNotEmpty) ||
         part.error != null;
     return Container(
-      constraints: const BoxConstraints(maxWidth: 780, minWidth: 320),
+      constraints: const BoxConstraints(maxWidth: 820, minWidth: 320),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
-        ),
-        color: theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.hairline),
+        color: theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.55),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             onTap: hasDetails
                 ? () => setState(() => _expanded = !_expanded)
                 : null,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
               child: Row(
                 children: [
                   Icon(
                     toolIcon(part.name),
-                    size: 16,
+                    size: 15,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  const SizedBox(width: 9),
-                  Text(part.name, style: theme.textTheme.labelLarge),
+                  const SizedBox(width: 8),
+                  Text(
+                    part.name,
+                    style: kMonoTextStyle.copyWith(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
                   const SizedBox(width: 10),
                   if (part.status == ChatToolStatus.running ||
                       part.status == ChatToolStatus.streaming)
                     SizedBox(
-                      width: 11,
-                      height: 11,
+                      width: 10,
+                      height: 10,
                       child: CircularProgressIndicator(
-                        strokeWidth: 1.6,
+                        strokeWidth: 1.4,
                         color: status.$2,
                       ),
                     )
                   else
-                    Icon(
-                      part.status == ChatToolStatus.completed
-                          ? Icons.check_circle_outline
-                          : Icons.error_outline,
-                      size: 14,
-                      color: status.$2,
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: status.$2,
+                        shape: BoxShape.circle,
+                      ),
                     ),
                   const SizedBox(width: 6),
                   Text(
                     status.$1,
-                    style: theme.textTheme.labelSmall?.copyWith(
+                    style: theme.microLabel.copyWith(
+                      fontSize: 8,
+                      letterSpacing: 1.2,
                       color: status.$2,
                     ),
                   ),
@@ -459,7 +513,8 @@ class _ToolCardState extends State<ToolCard> {
                           part.output!.split('\n').first,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
+                          style: kMonoTextStyle.copyWith(
+                            fontSize: 10.5,
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
@@ -468,8 +523,10 @@ class _ToolCardState extends State<ToolCard> {
                   const Spacer(),
                   if (hasDetails)
                     Icon(
-                      _expanded ? Icons.expand_less : Icons.expand_more,
-                      size: 17,
+                      _expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 16,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                 ],
@@ -478,7 +535,7 @@ class _ToolCardState extends State<ToolCard> {
           ),
           if (_expanded)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(11, 0, 11, 11),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -536,13 +593,10 @@ class MonoBlock extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          title,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.outline,
-            letterSpacing: 0.6,
-          ),
+          title.toUpperCase(),
+          style: theme.microLabel.copyWith(fontSize: 8.5),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 5),
         Container(
           width: double.infinity,
           constraints: BoxConstraints(maxHeight: maxHeight),
@@ -550,15 +604,14 @@ class MonoBlock extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.codeBackground,
             borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: theme.hairline),
           ),
           child: SingleChildScrollView(
             child: SelectableText(
               text,
-              style: TextStyle(
-                fontFamily: kMonoFontFamily,
-                fontFamilyFallback: kMonoFontFallback,
-                fontSize: 12,
-                height: 1.45,
+              style: kMonoTextStyle.copyWith(
+                fontSize: 11.5,
+                height: 1.5,
                 color: color ?? theme.codeForeground,
               ),
             ),
@@ -579,16 +632,17 @@ class NoticePill extends StatelessWidget {
     final theme = Theme.of(context);
     return Center(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(
-            alpha: 0.7,
-          ),
+          color: theme.colorScheme.surfaceContainerLow,
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: theme.hairline),
         ),
         child: Text(
           text,
-          style: theme.textTheme.labelSmall?.copyWith(
+          style: theme.textTheme.labelSmall!.copyWith(
+            fontSize: 9,
+            letterSpacing: 0.5,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),

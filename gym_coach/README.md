@@ -5,16 +5,19 @@
 the free **LongCat 2.5 Preview Free** model running on your local **OpenCode**
 server — through the `genkit_opencode_custom` Genkit plugin built in this repo.
 
+![OpenFit typed plan](test/previews/openfit_plan.png)
+
 ```
 gym_coach/
+├── assets/fonts/                  # bundled OFL typefaces (Fraunces, Instrument Sans, JetBrains Mono)
 ├── lib/
-│   ├── main.dart                 # OpenFitApp + openFitTheme() (carbon/emerald)
+│   ├── main.dart                 # OpenFitApp + openFitTheme() (warm ink / signal lime)
 │   └── src/
 │       ├── coach_service.dart    # one OpenCode client: plans + persistent Ask Coach session
 │       ├── plan.dart             # the typed plan schema (schemantic) + Markdown
 │       ├── plan_request.dart     # form inputs → prompt (text and structured)
 │       ├── plan_body.dart        # plan-aware text renderer (live text mode)
-│       ├── plan_view.dart        # interactive typed plan: completion, rest timer, macro bars
+│       ├── plan_view.dart        # interactive typed plan: completion ring, rest timer, macro bars
 │       ├── coach_chat.dart       # Ask Coach bubbles, streaming, rebuild-with-note
 │       ├── history_view.dart     # saved-plan list (desktop dialog + phone tab)
 │       ├── attachments.dart      # file picking (file:// on desktop, /_upload on web)
@@ -68,20 +71,40 @@ gym_coach/
 
 The shell switches at **840 px**:
 
-- **Wide (desktop)** — a 360 px config pane (quick-start presets, grouped
-  cards, sticky Generate button) next to a workspace with a status line, the
-  `Typed plan / Live text` toggle, History/Export/Copy actions, and a
-  collapsible **Ask Coach** dock at the bottom.
-- **Narrow (phone)** — a slim AppBar (OpenFit, compact status, mode toggle and
-  the same actions) with a four-destination `NavigationBar`:
-  **Build** (grouped config cards + horizontal preset strip + sticky Generate),
-  **Workout** (the plan or live text), **Coach** (chat), and **History**
-  (saved plans inline). Touch targets are ≥ 44 px and the layout fits a 390 px
-  screen without horizontal overflow.
+- **Wide (desktop)** — a 396 px config pane (brand header, numbered quick
+  starts, grouped cards, sticky Generate button) next to a workspace with a
+  serif plan header, the `Typed plan / Live text` toggle, History/Export/Copy
+  actions, and a collapsible **Ask Coach** dock at the bottom.
+- **Narrow (phone)** — a slim AppBar (logo, OpenFit wordmark, compact status,
+  mode toggle, history and an overflow menu for export/copy) with a
+  four-destination `NavigationBar`: **Build** (grouped config cards + horizontal
+  preset strip + sticky Generate), **Workout** (the plan or live text),
+  **Coach** (chat), and **History** (saved plans inline). Touch targets are
+  ≥ 44 px and the layout fits a 390 px screen without horizontal overflow.
 
 Streaming never rebuilds the form: elapsed time, streamed text and received
 characters live in `ValueNotifier`s rendered by small listeners, and the model
 dropdown's entries are memoized per catalog load.
+
+## Design
+
+OpenFit uses a **warm-ink training journal** direction: near-black olive
+surfaces, bone text and a single signal-lime accent. Hierarchy comes from
+typography and hairline rules rather than shadows or nested cards.
+
+- **Fraunces** (variable serif) carries display headings — the wordmark, the
+  workspace title, the empty state and the plan overview.
+- **Instrument Sans** handles UI and body copy; **JetBrains Mono** renders
+  ranges, timers, macros and indices so metrics line up.
+- Cards use one 1 px hairline, a 18 px radius and the raised surface token;
+  selected chips and the day tab use a 12% accent wash, never a second colour.
+- Every visual value resolves through `FitTokens` (`context.fit`) in
+  `style.dart`; the theme in `main.dart` maps those tokens into Material.
+- All three typefaces are bundled under `assets/fonts/` (SIL OFL) so macOS, web
+  and the widget-test previews render identically.
+
+`test/preview_test.dart` renders the real theme at 1400×1000 and 390×844 and
+writes `test/previews/openfit_*.png` for visual review.
 
 ## Running
 

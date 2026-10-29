@@ -65,26 +65,41 @@ class _PlanHistoryListState extends State<PlanHistoryList> {
         }
         final plans = snapshot.data ?? const <SavedPlan>[];
         if (plans.isEmpty) {
+          final tokens = context.fit;
           return Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 320),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.history,
-                    size: 34,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.7,
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: tokens.line),
+                    ),
+                    child: Icon(
+                      Icons.history_rounded,
+                      size: 22,
+                      color: tokens.dim,
                     ),
                   ),
-                  const SizedBox(height: Insets.md),
+                  const SizedBox(height: Insets.lg),
                   Text(
-                    'No saved plans yet.\nGenerated plans are kept here '
-                    'automatically.',
+                    'Nothing saved yet.',
+                    style: theme.textTheme.headlineSmall!.copyWith(
+                      fontSize: 22,
+                    ),
+                  ),
+                  const SizedBox(height: Insets.sm),
+                  Text(
+                    'Generated plans are kept here automatically, on this '
+                    'device.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall!.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                      color: tokens.muted,
+                      height: 1.5,
                     ),
                   ),
                 ],
@@ -125,12 +140,40 @@ class _HistoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = context.fit;
     final stamp = plan.createdAt.toLocal().toString().split('.').first;
+    final typed = plan.structured != null;
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(Insets.md, Insets.sm, Insets.xs, Insets.sm),
+      padding: const EdgeInsets.fromLTRB(
+        Insets.md,
+        Insets.md,
+        Insets.xs,
+        Insets.md,
+      ),
       onTap: onLoad,
       child: Row(
         children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: (typed ? tokens.accent : tokens.sage).withValues(
+                alpha: 0.1,
+              ),
+              borderRadius: BorderRadius.circular(Radii.sm),
+              border: Border.all(
+                color: (typed ? tokens.accent : tokens.sage).withValues(
+                  alpha: 0.22,
+                ),
+              ),
+            ),
+            child: Icon(
+              typed ? Icons.view_week_outlined : Icons.subject_rounded,
+              size: 16,
+              color: typed ? tokens.accent : tokens.sage,
+            ),
+          ),
+          const SizedBox(width: Insets.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -141,39 +184,44 @@ class _HistoryRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium!.copyWith(
                     fontWeight: FontWeight.w600,
+                    color: tokens.text,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   '$stamp · ${plan.modelId}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall!.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                  style: kFitMonoStyle.copyWith(
+                    fontSize: 9.5,
+                    color: tokens.dim,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: Insets.sm),
-          StatChip(label: plan.structured != null ? 'typed' : 'text'),
+          StatChip(
+            label: typed ? 'TYPED' : 'TEXT',
+            dot: typed ? tokens.accent : tokens.sage,
+          ),
           IconButton(
             tooltip: 'Load',
             visualDensity: VisualDensity.compact,
             onPressed: onLoad,
-            icon: const Icon(Icons.file_open_outlined, size: 18),
+            icon: const Icon(Icons.arrow_outward_rounded, size: 17),
           ),
           IconButton(
             tooltip: 'Export',
             visualDensity: VisualDensity.compact,
             onPressed: onExport,
-            icon: const Icon(Icons.ios_share, size: 18),
+            icon: const Icon(Icons.ios_share, size: 17),
           ),
           IconButton(
             tooltip: 'Delete',
             visualDensity: VisualDensity.compact,
             onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline, size: 18),
+            icon: const Icon(Icons.delete_outline, size: 17),
           ),
         ],
       ),
