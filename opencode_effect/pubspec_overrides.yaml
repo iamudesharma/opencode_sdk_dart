@@ -1,0 +1,5 @@
+# Local development only: use the SDK from this checkout.
+# `dart pub publish` ignores this file.
+dependency_overrides:
+  opencode_sdk_dart:
+    path: ../

@@ -27,7 +27,7 @@ Add to the project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  effect_core: ^0.0.2
+  effect_core: ^0.0.3
   opencode_effect:
     path: ../opencode_effect   # adjust for the project's location
 ```

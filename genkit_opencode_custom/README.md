@@ -4,6 +4,14 @@ A Genkit Dart plugin for **OpenCode**: it serves models from a local or remote
 **OpenCode server** through `opencode_sdk_dart`, with an
 **OpenAI-compatible Chat Completions** client as a companion handle.
 
+## Install
+
+```yaml
+dependencies:
+  genkit: ^1.0.0
+  genkit_opencode_custom: ^0.1.0
+```
+
 ```dart
 import 'package:genkit/genkit.dart';
 import 'package:genkit_opencode_custom/genkit_opencode_custom.dart';

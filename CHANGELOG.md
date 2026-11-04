@@ -23,8 +23,3 @@ Initial release.
   transport or per request, with `Retry-After` support and idempotent-only
   defaults.
 - Unit test suite (87 tests) plus a live read-only smoke test.
-
-- The macOS clients grew a full workbench: agent forms, inbox steering,
-  transcript pagination, session export/import, MCP/plugin/config management,
-  persistent terminals with the `input_protocol=1` framing (`PtyInputFrames`),
-  and a mocked-server integration suite.

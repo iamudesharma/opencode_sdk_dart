@@ -1,0 +1,7 @@
+# Local development only: use the sibling packages from this checkout.
+# `dart pub publish` ignores this file.
+dependency_overrides:
+  opencode_effect:
+    path: ../opencode_effect
+  opencode_sdk_dart:
+    path: ../

@@ -1,6 +1,7 @@
 # opencode_effect
 
-Effect-based adapter for [`opencode_sdk_dart`](../README.md), built on
+Effect-based adapter for
+[`opencode_sdk_dart`](https://pub.dev/packages/opencode_sdk_dart), built on
 [`effect_core`](https://pub.dev/packages/effect_core).
 
 The SDK stays a plain, generated, dependency-light client. This package is the
@@ -26,11 +27,9 @@ effects:
 
 ```yaml
 dependencies:
-  effect_core: ^0.0.2
-  opencode_effect:
-    path: ../opencode_effect
-  opencode_sdk_dart:
-    path: ../
+  effect_core: ^0.0.3
+  opencode_effect: ^0.1.0
+  opencode_sdk_dart: ^0.1.0
 ```
 
 ## Quick start
@@ -80,7 +79,7 @@ final sessions = client.call(
 );
 ```
 
-Binding is intentionally thin: the published SDK surface (29 resources, 438
+Binding is intentionally thin: the published SDK surface (28 resources, 438
 declarations) stays the single source of truth, and this package does not need
 regeneration when the contract changes.
 

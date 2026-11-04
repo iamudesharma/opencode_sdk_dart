@@ -7,14 +7,12 @@ environment:
   sdk: ^3.13.0
 
 dependencies:
-  effect_core: ^0.0.2
+  effect_core: ^0.0.3
   flutter:
     sdk: flutter
   http: ^1.2.0
-  opencode_effect:
-    path: ../opencode_effect
-  opencode_sdk_dart:
-    path: ../
+  opencode_effect: ^0.1.0
+  opencode_sdk_dart: ^0.1.0
   web: ^1.1.0
   xterm: ^4.0.0
 
