@@ -4,7 +4,7 @@ description: >-
   official OpenAPI 3.1 contract with sealed model unions, typed errors,
   multiplexed event streams, plugin RPC, PTY sockets, and local service
   discovery.
-version: 0.1.0
+version: 0.2.0
 repository: https://github.com/iamudesharma/opencode_sdk_dart
 issue_tracker: https://github.com/iamudesharma/opencode_sdk_dart/issues
 

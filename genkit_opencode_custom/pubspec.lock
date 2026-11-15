@@ -383,14 +383,14 @@ packages:
       path: "../opencode_effect"
       relative: true
     source: path
-    version: "0.1.0"
+    version: "0.2.0"
   opencode_sdk_dart:
     dependency: "direct main"
     description:
       path: ".."
       relative: true
     source: path
-    version: "0.1.0"
+    version: "0.2.0"
   package_config:
     dependency: transitive
     description:

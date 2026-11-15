@@ -28,8 +28,8 @@ effects:
 ```yaml
 dependencies:
   effect_core: ^0.0.3
-  opencode_effect: ^0.1.0
-  opencode_sdk_dart: ^0.1.0
+  opencode_effect: ^0.2.0
+  opencode_sdk_dart: ^0.2.0
 ```
 
 ## Quick start
@@ -79,7 +79,7 @@ final sessions = client.call(
 );
 ```
 
-Binding is intentionally thin: the published SDK surface (28 resources, 438
+Binding is intentionally thin: the published SDK surface (32 resource groups, 813
 declarations) stays the single source of truth, and this package does not need
 regeneration when the contract changes.
 

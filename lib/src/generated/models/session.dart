@@ -26,13 +26,101 @@ final class FileDiffInfo {
   final int deletions;
   final FileDiffInfoStatus status;
 
+  /// Always `true`.
+  bool get more => true;
+
   Map<String, Object?> toJson() => <String, Object?>{
         'file': file,
         'patch': patch,
         'additions': additions,
         'deletions': deletions,
         'status': status.wire,
+        'more': true,
       };
+}
+
+/// `Session.Event.Durable`
+sealed class SessionEventDurable {
+  const SessionEventDurable();
+
+  /// Decodes a payload into the matching variant.
+  factory SessionEventDurable.fromJson(Map<String, Object?> json) {
+    final value = json['type'];
+    return switch (value) {
+      'session.created' => SessionCreated.fromJson(json),
+      'session.agent.selected' => SessionAgentSelected.fromJson(json),
+      'session.model.selected' => SessionModelSelected.fromJson(json),
+      'session.moved' => SessionMoved.fromJson(json),
+      'session.renamed' => SessionRenamed.fromJson(json),
+      'session.metadata.updated' => SessionMetadataUpdated.fromJson(json),
+      'session.permissions' => SessionPermissions.fromJson(json),
+      'session.viewed' => SessionViewed.fromJson(json),
+      'session.archived' => SessionArchived.fromJson(json),
+      'session.unarchived' => SessionUnarchived.fromJson(json),
+      'session.deleted' => SessionDeleted.fromJson(json),
+      'session.forked' => SessionForked.fromJson(json),
+      'session.inbox.delivered' => SessionInboxDelivered.fromJson(json),
+      'session.inbox.enqueued' => SessionInboxEnqueued.fromJson(json),
+      'session.inbox.cancelled' => SessionInboxCancelled.fromJson(json),
+      'session.inbox.delivery.changed' =>
+        SessionInboxDeliveryChanged.fromJson(json),
+      'session.execution.started' => SessionExecutionStarted.fromJson(json),
+      'session.execution.succeeded' => SessionExecutionSucceeded.fromJson(json),
+      'session.execution.failed' => SessionExecutionFailed.fromJson(json),
+      'session.execution.interrupted' =>
+        SessionExecutionInterrupted.fromJson(json),
+      'session.instructions.updated' =>
+        SessionInstructionsUpdated.fromJson(json),
+      'session.synthetic' => SessionSynthetic.fromJson(json),
+      'session.skill.activated' => SessionSkillActivated.fromJson(json),
+      'session.shell.started' => SessionShellStarted.fromJson(json),
+      'session.shell.ended' => SessionShellEnded.fromJson(json),
+      'session.step.started' => SessionStepStarted.fromJson(json),
+      'session.step.first-token' => SessionStepFirstToken.fromJson(json),
+      'session.step.streamed' => SessionStepStreamed.fromJson(json),
+      'session.step.ended' => SessionStepEnded.fromJson(json),
+      'session.step.failed' => SessionStepFailed.fromJson(json),
+      'session.text.started' => SessionTextStarted.fromJson(json),
+      'session.text.ended' => SessionTextEnded.fromJson(json),
+      'session.reasoning.started' => SessionReasoningStarted.fromJson(json),
+      'session.reasoning.ended' => SessionReasoningEnded.fromJson(json),
+      'session.tool.input.started' => SessionToolInputStarted.fromJson(json),
+      'session.tool.input.ended' => SessionToolInputEnded.fromJson(json),
+      'session.tool.called' => SessionToolCalled.fromJson(json),
+      'session.tool.success' => SessionToolSuccess.fromJson(json),
+      'session.tool.failed' => SessionToolFailed.fromJson(json),
+      'session.retry.scheduled' => SessionRetryScheduled.fromJson(json),
+      'session.compaction.started' => SessionCompactionStarted.fromJson(json),
+      'session.compaction.ended' => SessionCompactionEnded.fromJson(json),
+      'session.compaction.failed' => SessionCompactionFailed.fromJson(json),
+      'session.revert.staged' => SessionRevertStaged.fromJson(json),
+      'session.revert.cleared' => SessionRevertCleared.fromJson(json),
+      'session.revert.committed' => SessionRevertCommitted.fromJson(json),
+      'session.usage.recorded' => SessionUsageRecorded.fromJson(json),
+      'session.message.content.updated' =>
+        SessionMessageContentUpdated.fromJson(json),
+      _ => throw OpenCodeDecodeException(
+          'Unknown Session.Event.Durable discriminator: $value'),
+    };
+  }
+
+  /// Present on every variant (`id`).
+  EventID get id;
+
+  /// Present on every variant (`created`).
+  double get created;
+
+  /// Present on every variant (`metadata`).
+  Map<String, Object?>? get metadata;
+
+  /// Present on every variant (`type`).
+  String get type;
+
+  /// Present on every variant (`location`).
+  LocationRef? get location;
+
+  /// Encodes this value to JSON.
+  Map<String, Object?> toJson();
 }
 
 /// `Session.ForkBoundary`
@@ -110,71 +198,22 @@ final class SessionForkBoundaryThrough extends SessionForkBoundary {
       };
 }
 
-/// `Session.Inbox.Compaction`
-final class SessionInboxCompaction extends SessionInboxInfo {
-  const SessionInboxCompaction({
-    required this.id,
-    required this.sessionID,
-    required this.time,
-    required this.payload,
-    required this.delivery,
-  });
-
-  factory SessionInboxCompaction.fromJson(Map<String, Object?> json) =>
-      SessionInboxCompaction(
-        id: SessionMessageID.fromJson(asJsonString(json['id'])),
-        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
-        time: SessionInboxCompactionTime.fromJson(asJsonMap(json['time'])),
-        payload: json['payload'],
-        delivery: SessionInboxDelivery.fromJson(json['delivery']),
-      );
-
-  @override
-  final SessionMessageID id;
-  @override
-  final SessionID sessionID;
-  final SessionInboxCompactionTime time;
-  final Object? payload;
-  @override
-  final SessionInboxDelivery delivery;
-
-  /// Always `compaction`.
-  @override
-  String get type => 'compaction';
-
-  @override
-  Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        'sessionID': sessionID,
-        'time': time.toJson(),
-        'type': 'compaction',
-        'payload': payload,
-        'delivery': delivery.wire,
-      };
-}
-
-/// `Session.Inbox.Info`
-sealed class SessionInboxInfo {
-  const SessionInboxInfo();
+/// `Session.Inbox.Item`
+sealed class SessionInboxItem {
+  const SessionInboxItem();
 
   /// Decodes a payload into the matching variant.
-  factory SessionInboxInfo.fromJson(Map<String, Object?> json) {
+  factory SessionInboxItem.fromJson(Map<String, Object?> json) {
     final value = json['type'];
     return switch (value) {
-      'user' => SessionInboxUser.fromJson(json),
-      'synthetic' => SessionInboxSynthetic.fromJson(json),
-      'compaction' => SessionInboxCompaction.fromJson(json),
-      'move' => SessionInboxMove.fromJson(json),
+      'user' => SessionInboxItemUser.fromJson(json),
+      'synthetic' => SessionInboxItemSynthetic.fromJson(json),
+      'compaction' => SessionInboxItemCompaction.fromJson(json),
+      'move' => SessionInboxItemMove.fromJson(json),
       _ => throw OpenCodeDecodeException(
-          'Unknown Session.Inbox.Info discriminator: $value'),
+          'Unknown Session.Inbox.Item discriminator: $value'),
     };
   }
-
-  /// Present on every variant (`id`).
-  SessionMessageID get id;
-
-  /// Present on every variant (`sessionID`).
-  SessionID get sessionID;
 
   /// Present on every variant (`type`).
   String get type;
@@ -184,49 +223,6 @@ sealed class SessionInboxInfo {
 
   /// Encodes this value to JSON.
   Map<String, Object?> toJson();
-}
-
-/// `Session.Inbox.User`
-final class SessionInboxUser extends SessionInboxInfo {
-  const SessionInboxUser({
-    required this.id,
-    required this.sessionID,
-    required this.time,
-    required this.payload,
-    required this.delivery,
-  });
-
-  factory SessionInboxUser.fromJson(Map<String, Object?> json) =>
-      SessionInboxUser(
-        id: SessionMessageID.fromJson(asJsonString(json['id'])),
-        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
-        time: SessionInboxUserTime.fromJson(asJsonMap(json['time'])),
-        payload: SessionInboxUserPayload.fromJson(asJsonMap(json['payload'])),
-        delivery: SessionInboxDelivery.fromJson(json['delivery']),
-      );
-
-  @override
-  final SessionMessageID id;
-  @override
-  final SessionID sessionID;
-  final SessionInboxUserTime time;
-  final SessionInboxUserPayload payload;
-  @override
-  final SessionInboxDelivery delivery;
-
-  /// Always `user`.
-  @override
-  String get type => 'user';
-
-  @override
-  Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        'sessionID': sessionID,
-        'time': time.toJson(),
-        'type': 'user',
-        'payload': payload.toJson(),
-        'delivery': delivery.wire,
-      };
 }
 
 /// `Session.Inbox.UserPayload`
@@ -274,45 +270,30 @@ final class SessionInboxUserPayload {
       };
 }
 
-/// `Session.Inbox.Synthetic`
-final class SessionInboxSynthetic extends SessionInboxInfo {
-  const SessionInboxSynthetic({
-    required this.id,
-    required this.sessionID,
-    required this.time,
+/// `SessionInboxItemUser`
+final class SessionInboxItemUser extends SessionInboxItem {
+  const SessionInboxItemUser({
     required this.payload,
     required this.delivery,
   });
 
-  factory SessionInboxSynthetic.fromJson(Map<String, Object?> json) =>
-      SessionInboxSynthetic(
-        id: SessionMessageID.fromJson(asJsonString(json['id'])),
-        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
-        time: SessionInboxSyntheticTime.fromJson(asJsonMap(json['time'])),
-        payload:
-            SessionInboxSyntheticPayload.fromJson(asJsonMap(json['payload'])),
+  factory SessionInboxItemUser.fromJson(Map<String, Object?> json) =>
+      SessionInboxItemUser(
+        payload: SessionInboxUserPayload.fromJson(asJsonMap(json['payload'])),
         delivery: SessionInboxDelivery.fromJson(json['delivery']),
       );
 
-  @override
-  final SessionMessageID id;
-  @override
-  final SessionID sessionID;
-  final SessionInboxSyntheticTime time;
-  final SessionInboxSyntheticPayload payload;
+  final SessionInboxUserPayload payload;
   @override
   final SessionInboxDelivery delivery;
 
-  /// Always `synthetic`.
+  /// Always `user`.
   @override
-  String get type => 'synthetic';
+  String get type => 'user';
 
   @override
   Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        'sessionID': sessionID,
-        'time': time.toJson(),
-        'type': 'synthetic',
+        'type': 'user',
         'payload': payload.toJson(),
         'delivery': delivery.wire,
       };
@@ -344,46 +325,62 @@ final class SessionInboxSyntheticPayload {
       };
 }
 
-/// `Session.Inbox.Move`
-final class SessionInboxMove extends SessionInboxInfo {
-  const SessionInboxMove({
-    required this.id,
-    required this.sessionID,
-    required this.time,
-    required this.delivery,
+/// `SessionInboxItemSynthetic`
+final class SessionInboxItemSynthetic extends SessionInboxItem {
+  const SessionInboxItemSynthetic({
     required this.payload,
+    required this.delivery,
   });
 
-  factory SessionInboxMove.fromJson(Map<String, Object?> json) =>
-      SessionInboxMove(
-        id: SessionMessageID.fromJson(asJsonString(json['id'])),
-        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
-        time: SessionInboxMoveTime.fromJson(asJsonMap(json['time'])),
+  factory SessionInboxItemSynthetic.fromJson(Map<String, Object?> json) =>
+      SessionInboxItemSynthetic(
+        payload:
+            SessionInboxSyntheticPayload.fromJson(asJsonMap(json['payload'])),
         delivery: SessionInboxDelivery.fromJson(json['delivery']),
-        payload: SessionInboxMovePayload.fromJson(asJsonMap(json['payload'])),
       );
 
-  @override
-  final SessionMessageID id;
-  @override
-  final SessionID sessionID;
-  final SessionInboxMoveTime time;
+  final SessionInboxSyntheticPayload payload;
   @override
   final SessionInboxDelivery delivery;
-  final SessionInboxMovePayload payload;
 
-  /// Always `move`.
+  /// Always `synthetic`.
   @override
-  String get type => 'move';
+  String get type => 'synthetic';
 
   @override
   Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        'sessionID': sessionID,
-        'time': time.toJson(),
-        'type': 'move',
-        'delivery': delivery.wire,
+        'type': 'synthetic',
         'payload': payload.toJson(),
+        'delivery': delivery.wire,
+      };
+}
+
+/// `SessionInboxItemCompaction`
+final class SessionInboxItemCompaction extends SessionInboxItem {
+  const SessionInboxItemCompaction({
+    required this.payload,
+    required this.delivery,
+  });
+
+  factory SessionInboxItemCompaction.fromJson(Map<String, Object?> json) =>
+      SessionInboxItemCompaction(
+        payload: json['payload'],
+        delivery: SessionInboxDelivery.fromJson(json['delivery']),
+      );
+
+  final Object? payload;
+  @override
+  final SessionInboxDelivery delivery;
+
+  /// Always `compaction`.
+  @override
+  String get type => 'compaction';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'type': 'compaction',
+        'payload': payload,
+        'delivery': delivery.wire,
       };
 }
 
@@ -415,98 +412,69 @@ final class SessionInboxMovePayload {
       };
 }
 
-/// `Session.Info`
-final class SessionInfo {
-  const SessionInfo({
-    required this.id,
-    this.parentID,
-    this.fork,
-    required this.projectID,
-    this.agent,
-    this.model,
-    required this.cost,
-    required this.tokens,
-    this.outcome,
-    required this.time,
-    this.title,
-    this.subpath,
-    this.metadata,
-    this.permissions,
-    this.revert,
-    required this.location,
+/// `SessionInboxItemMove`
+final class SessionInboxItemMove extends SessionInboxItem {
+  const SessionInboxItemMove({
+    required this.payload,
+    required this.delivery,
   });
 
-  factory SessionInfo.fromJson(Map<String, Object?> json) => SessionInfo(
-        id: SessionID.fromJson(asJsonString(json['id'])),
-        parentID: json['parentID'] == null
-            ? null
-            : SessionID.fromJson(asJsonString(json['parentID'])),
-        fork: json['fork'] == null
-            ? null
-            : SessionInfoFork.fromJson(asJsonMap(json['fork'])),
-        projectID: ProjectID.fromJson(asJsonString(json['projectID'])),
-        agent: json['agent'] == null
-            ? null
-            : AgentID.fromJson(asJsonString(json['agent'])),
-        model: json['model'] == null
-            ? null
-            : ModelRef.fromJson(asJsonMap(json['model'])),
-        cost: MoneyUSD.fromJson(asJsonDouble(json['cost'])),
-        tokens: TokenUsageInfo.fromJson(asJsonMap(json['tokens'])),
-        outcome: json['outcome'] == null
-            ? null
-            : SessionInfoOutcome.fromJson(json['outcome']),
-        time: SessionInfoTime.fromJson(asJsonMap(json['time'])),
-        title: decodeOptionalString(json, 'title'),
-        subpath: json['subpath'] == null
-            ? null
-            : RelativePath.fromJson(asJsonString(json['subpath'])),
-        metadata: json['metadata'] == null ? null : asJsonMap(json['metadata']),
-        permissions: json['permissions'] == null
-            ? null
-            : jsonList(json['permissions'],
-                (item) => PermissionRule.fromJson(asJsonMap(item))),
-        revert: json['revert'] == null
-            ? null
-            : SessionRevert.fromJson(asJsonMap(json['revert'])),
-        location: LocationRef.fromJson(json['location']),
+  factory SessionInboxItemMove.fromJson(Map<String, Object?> json) =>
+      SessionInboxItemMove(
+        payload: SessionInboxMovePayload.fromJson(asJsonMap(json['payload'])),
+        delivery: SessionInboxDelivery.fromJson(json['delivery']),
       );
 
-  final SessionID id;
-  final SessionID? parentID;
-  final SessionInfoFork? fork;
-  final ProjectID projectID;
-  final AgentID? agent;
-  final ModelRef? model;
-  final MoneyUSD cost;
-  final TokenUsageInfo tokens;
-  final SessionInfoOutcome? outcome;
-  final SessionInfoTime time;
-  final String? title;
-  final RelativePath? subpath;
-  final Map<String, Object?>? metadata;
-  final List<PermissionRule>? permissions;
-  final SessionRevert? revert;
-  final LocationRef location;
+  final SessionInboxMovePayload payload;
+  @override
+  final SessionInboxDelivery delivery;
+
+  /// Always `move`.
+  @override
+  String get type => 'move';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'type': 'move',
+        'payload': payload.toJson(),
+        'delivery': delivery.wire,
+      };
+}
+
+/// `Session.StructuredError`
+final class SessionStructuredError {
+  const SessionStructuredError({
+    required this.type,
+    required this.message,
+    this.status,
+    this.response,
+    this.retryAfterMs,
+  });
+
+  factory SessionStructuredError.fromJson(Map<String, Object?> json) =>
+      SessionStructuredError(
+        type: decodeString(json, 'type'),
+        message: decodeString(json, 'message'),
+        status: decodeOptionalInt(json, 'status'),
+        response: json['response'] == null
+            ? null
+            : SessionStructuredErrorResponse.fromJson(
+                asJsonMap(json['response'])),
+        retryAfterMs: decodeOptionalInt(json, 'retryAfterMs'),
+      );
+
+  final String type;
+  final String message;
+  final int? status;
+  final SessionStructuredErrorResponse? response;
+  final int? retryAfterMs;
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        if (parentID != null) 'parentID': parentID!,
-        if (fork != null) 'fork': fork!.toJson(),
-        'projectID': projectID,
-        if (agent != null) 'agent': agent!,
-        if (model != null) 'model': model!.toJson(),
-        'cost': cost,
-        'tokens': tokens.toJson(),
-        if (outcome != null) 'outcome': outcome!.wire,
-        'time': time.toJson(),
-        if (title != null) 'title': title!,
-        if (subpath != null) 'subpath': subpath!,
-        if (metadata != null) 'metadata': metadata!,
-        if (permissions != null)
-          'permissions': [for (final item in permissions!) item.toJson()],
-        if (revert != null) 'revert': revert!.toJson(),
-        'location': location.toJson(),
+        'type': type,
+        'message': message,
+        if (status != null) 'status': status!,
+        if (response != null) 'response': response!.toJson(),
+        if (retryAfterMs != null) 'retryAfterMs': retryAfterMs!,
       };
 }
 
@@ -573,159 +541,51 @@ final class SessionRevert {
       };
 }
 
-/// `Session.Message.AgentSelected`
-final class SessionMessageAgentSelected extends SessionMessageInfo {
-  const SessionMessageAgentSelected({
-    required this.id,
-    this.metadata,
-    required this.time,
-    required this.agent,
-    this.previous,
-  });
+/// `Session.Message.AssistantContent.Encoded`
+sealed class SessionMessageAssistantContentEncoded {
+  const SessionMessageAssistantContentEncoded();
 
-  factory SessionMessageAgentSelected.fromJson(Map<String, Object?> json) =>
-      SessionMessageAgentSelected(
-        id: SessionMessageID.fromJson(asJsonString(json['id'])),
-        metadata: json['metadata'] == null ? null : asJsonMap(json['metadata']),
-        time: SessionMessageAgentSelectedTime.fromJson(asJsonMap(json['time'])),
-        agent: AgentID.fromJson(asJsonString(json['agent'])),
-        previous: json['previous'] == null
-            ? null
-            : AgentID.fromJson(asJsonString(json['previous'])),
-      );
+  /// Decodes a payload into the matching variant.
+  factory SessionMessageAssistantContentEncoded.fromJson(
+      Map<String, Object?> json) {
+    final value = json['type'];
+    return switch (value) {
+      'text' => SessionMessageAssistantText.fromJson(json),
+      'reasoning' => SessionMessageAssistantReasoning.fromJson(json),
+      'tool' => SessionMessageAssistantTool.fromJson(json),
+      _ => throw OpenCodeDecodeException(
+          'Unknown Session.Message.AssistantContent.Encoded discriminator: $value'),
+    };
+  }
 
-  @override
-  final SessionMessageID id;
-  @override
-  final Map<String, Object?>? metadata;
-  final SessionMessageAgentSelectedTime time;
-  final AgentID agent;
-  final AgentID? previous;
+  /// Present on every variant (`type`).
+  String get type;
 
-  /// Always `agent-switched`.
-  @override
-  String get type => 'agent-switched';
+  /// Present on every variant (`native`).
+  Map<String, Object?>? get native;
 
-  @override
-  Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        if (metadata != null) 'metadata': metadata!,
-        'time': time.toJson(),
-        'type': 'agent-switched',
-        'agent': agent,
-        if (previous != null) 'previous': previous!,
-      };
-}
-
-/// `Session.Message.Assistant`
-final class SessionMessageAssistant extends SessionMessageInfo {
-  const SessionMessageAssistant({
-    required this.id,
-    this.metadata,
-    required this.time,
-    required this.agent,
-    required this.model,
-    required this.content,
-    this.snapshot,
-    this.finish,
-    this.rawFinish,
-    this.providerState,
-    this.cost,
-    this.tokens,
-    this.error,
-    this.retry,
-  });
-
-  factory SessionMessageAssistant.fromJson(Map<String, Object?> json) =>
-      SessionMessageAssistant(
-        id: SessionMessageID.fromJson(asJsonString(json['id'])),
-        metadata: json['metadata'] == null ? null : asJsonMap(json['metadata']),
-        time: SessionMessageAssistantTime.fromJson(asJsonMap(json['time'])),
-        agent: AgentID.fromJson(asJsonString(json['agent'])),
-        model: ModelRef.fromJson(asJsonMap(json['model'])),
-        content: jsonList(json['content'],
-            (item) => SessionMessageAssistantContent.fromJson(asJsonMap(item))),
-        snapshot: json['snapshot'] == null
-            ? null
-            : SessionMessageAssistantSnapshot.fromJson(
-                asJsonMap(json['snapshot'])),
-        finish: json['finish'] == null
-            ? null
-            : SessionMessageAssistantFinish.fromJson(json['finish']),
-        rawFinish: decodeOptionalString(json, 'rawFinish'),
-        providerState: json['providerState'] == null
-            ? null
-            : asJsonMap(json['providerState']),
-        cost: json['cost'] == null
-            ? null
-            : MoneyUSD.fromJson(asJsonDouble(json['cost'])),
-        tokens: json['tokens'] == null
-            ? null
-            : TokenUsageInfo.fromJson(asJsonMap(json['tokens'])),
-        error: json['error'] == null
-            ? null
-            : SessionStructuredError.fromJson(asJsonMap(json['error'])),
-        retry: json['retry'] == null
-            ? null
-            : SessionMessageAssistantRetry.fromJson(asJsonMap(json['retry'])),
-      );
-
-  @override
-  final SessionMessageID id;
-  @override
-  final Map<String, Object?>? metadata;
-  final SessionMessageAssistantTime time;
-  final AgentID agent;
-  final ModelRef model;
-  final List<SessionMessageAssistantContent> content;
-  final SessionMessageAssistantSnapshot? snapshot;
-  final SessionMessageAssistantFinish? finish;
-  final String? rawFinish;
-  final Map<String, Object?>? providerState;
-  final MoneyUSD? cost;
-  final TokenUsageInfo? tokens;
-  final SessionStructuredError? error;
-  final SessionMessageAssistantRetry? retry;
-
-  /// Always `assistant`.
-  @override
-  String get type => 'assistant';
-
-  @override
-  Map<String, Object?> toJson() => <String, Object?>{
-        'id': id,
-        if (metadata != null) 'metadata': metadata!,
-        'time': time.toJson(),
-        'type': 'assistant',
-        'agent': agent,
-        'model': model.toJson(),
-        'content': [for (final item in content) item.toJson()],
-        if (snapshot != null) 'snapshot': snapshot!.toJson(),
-        if (finish != null) 'finish': finish!.wire,
-        if (rawFinish != null) 'rawFinish': rawFinish!,
-        if (providerState != null) 'providerState': providerState!,
-        if (cost != null) 'cost': cost!,
-        if (tokens != null) 'tokens': tokens!.toJson(),
-        if (error != null) 'error': error!.toJson(),
-        if (retry != null) 'retry': retry!.toJson(),
-      };
+  /// Encodes this value to JSON.
+  Map<String, Object?> toJson();
 }
 
 /// `Session.Message.Assistant.Text`
-final class SessionMessageAssistantText extends SessionMessageAssistantContent {
+final class SessionMessageAssistantText
+    extends SessionMessageAssistantContentEncoded
+    implements SessionMessageAssistantContent {
   const SessionMessageAssistantText({
     required this.text,
-    this.state,
+    this.native,
   });
 
   factory SessionMessageAssistantText.fromJson(Map<String, Object?> json) =>
       SessionMessageAssistantText(
         text: decodeString(json, 'text'),
-        state: json['state'] == null ? null : asJsonMap(json['state']),
+        native: json['native'] == null ? null : asJsonMap(json['native']),
       );
 
   final String text;
-  final Map<String, Object?>? state;
+  @override
+  final Map<String, Object?>? native;
 
   /// Always `text`.
   @override
@@ -735,16 +595,17 @@ final class SessionMessageAssistantText extends SessionMessageAssistantContent {
   Map<String, Object?> toJson() => <String, Object?>{
         'type': 'text',
         'text': text,
-        if (state != null) 'state': state!,
+        if (native != null) 'native': native!,
       };
 }
 
 /// `Session.Message.Assistant.Reasoning`
 final class SessionMessageAssistantReasoning
-    extends SessionMessageAssistantContent {
+    extends SessionMessageAssistantContentEncoded
+    implements SessionMessageAssistantContent {
   const SessionMessageAssistantReasoning({
     required this.text,
-    this.state,
+    this.native,
     this.time,
   });
 
@@ -752,7 +613,7 @@ final class SessionMessageAssistantReasoning
           Map<String, Object?> json) =>
       SessionMessageAssistantReasoning(
         text: decodeString(json, 'text'),
-        state: json['state'] == null ? null : asJsonMap(json['state']),
+        native: json['native'] == null ? null : asJsonMap(json['native']),
         time: json['time'] == null
             ? null
             : SessionMessageAssistantReasoningTime.fromJson(
@@ -760,7 +621,8 @@ final class SessionMessageAssistantReasoning
       );
 
   final String text;
-  final Map<String, Object?>? state;
+  @override
+  final Map<String, Object?>? native;
   final SessionMessageAssistantReasoningTime? time;
 
   /// Always `reasoning`.
@@ -771,19 +633,20 @@ final class SessionMessageAssistantReasoning
   Map<String, Object?> toJson() => <String, Object?>{
         'type': 'reasoning',
         'text': text,
-        if (state != null) 'state': state!,
+        if (native != null) 'native': native!,
         if (time != null) 'time': time!.toJson(),
       };
 }
 
 /// `Session.Message.Assistant.Tool`
-final class SessionMessageAssistantTool extends SessionMessageAssistantContent {
+final class SessionMessageAssistantTool
+    extends SessionMessageAssistantContentEncoded
+    implements SessionMessageAssistantContent {
   const SessionMessageAssistantTool({
     required this.id,
     required this.name,
     this.executed,
-    this.providerState,
-    this.providerResultState,
+    this.native,
     required this.state,
     required this.time,
   });
@@ -793,12 +656,7 @@ final class SessionMessageAssistantTool extends SessionMessageAssistantContent {
         id: decodeString(json, 'id'),
         name: decodeString(json, 'name'),
         executed: decodeOptionalBool(json, 'executed'),
-        providerState: json['providerState'] == null
-            ? null
-            : asJsonMap(json['providerState']),
-        providerResultState: json['providerResultState'] == null
-            ? null
-            : asJsonMap(json['providerResultState']),
+        native: json['native'] == null ? null : asJsonMap(json['native']),
         state:
             SessionMessageAssistantToolState.fromJson(asJsonMap(json['state'])),
         time: SessionMessageAssistantToolTime.fromJson(asJsonMap(json['time'])),
@@ -807,8 +665,8 @@ final class SessionMessageAssistantTool extends SessionMessageAssistantContent {
   final String id;
   final String name;
   final bool? executed;
-  final Map<String, Object?>? providerState;
-  final Map<String, Object?>? providerResultState;
+  @override
+  final Map<String, Object?>? native;
   final SessionMessageAssistantToolState state;
   final SessionMessageAssistantToolTime time;
 
@@ -822,9 +680,7 @@ final class SessionMessageAssistantTool extends SessionMessageAssistantContent {
         'id': id,
         'name': name,
         if (executed != null) 'executed': executed!,
-        if (providerState != null) 'providerState': providerState!,
-        if (providerResultState != null)
-          'providerResultState': providerResultState!,
+        if (native != null) 'native': native!,
         'state': state.toJson(),
         'time': time.toJson(),
       };
@@ -961,36 +817,440 @@ final class SessionMessageToolStateError
       };
 }
 
-/// `Session.StructuredError`
-final class SessionStructuredError {
-  const SessionStructuredError({
-    required this.type,
-    required this.message,
-    this.status,
-    this.response,
+/// `Session.Inbox.Compaction`
+final class SessionInboxCompaction extends SessionInboxInfo {
+  const SessionInboxCompaction({
+    required this.id,
+    required this.sessionID,
+    required this.time,
+    required this.payload,
+    required this.delivery,
   });
 
-  factory SessionStructuredError.fromJson(Map<String, Object?> json) =>
-      SessionStructuredError(
-        type: decodeString(json, 'type'),
-        message: decodeString(json, 'message'),
-        status: decodeOptionalInt(json, 'status'),
-        response: json['response'] == null
-            ? null
-            : SessionStructuredErrorResponse.fromJson(
-                asJsonMap(json['response'])),
+  factory SessionInboxCompaction.fromJson(Map<String, Object?> json) =>
+      SessionInboxCompaction(
+        id: SessionMessageID.fromJson(asJsonString(json['id'])),
+        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
+        time: SessionInboxCompactionTime.fromJson(asJsonMap(json['time'])),
+        payload: json['payload'],
+        delivery: SessionInboxDelivery.fromJson(json['delivery']),
       );
 
-  final String type;
-  final String message;
-  final int? status;
-  final SessionStructuredErrorResponse? response;
+  @override
+  final SessionMessageID id;
+  @override
+  final SessionID sessionID;
+  final SessionInboxCompactionTime time;
+  final Object? payload;
+  @override
+  final SessionInboxDelivery delivery;
+
+  /// Always `compaction`.
+  @override
+  String get type => 'compaction';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+        'sessionID': sessionID,
+        'time': time.toJson(),
+        'type': 'compaction',
+        'payload': payload,
+        'delivery': delivery.wire,
+      };
+}
+
+/// `Session.Inbox.Info`
+sealed class SessionInboxInfo {
+  const SessionInboxInfo();
+
+  /// Decodes a payload into the matching variant.
+  factory SessionInboxInfo.fromJson(Map<String, Object?> json) {
+    final value = json['type'];
+    return switch (value) {
+      'user' => SessionInboxUser.fromJson(json),
+      'synthetic' => SessionInboxSynthetic.fromJson(json),
+      'compaction' => SessionInboxCompaction.fromJson(json),
+      'move' => SessionInboxMove.fromJson(json),
+      _ => throw OpenCodeDecodeException(
+          'Unknown Session.Inbox.Info discriminator: $value'),
+    };
+  }
+
+  /// Present on every variant (`id`).
+  SessionMessageID get id;
+
+  /// Present on every variant (`sessionID`).
+  SessionID get sessionID;
+
+  /// Present on every variant (`type`).
+  String get type;
+
+  /// Present on every variant (`delivery`).
+  SessionInboxDelivery get delivery;
+
+  /// Encodes this value to JSON.
+  Map<String, Object?> toJson();
+}
+
+/// `Session.Inbox.User`
+final class SessionInboxUser extends SessionInboxInfo {
+  const SessionInboxUser({
+    required this.id,
+    required this.sessionID,
+    required this.time,
+    required this.payload,
+    required this.delivery,
+  });
+
+  factory SessionInboxUser.fromJson(Map<String, Object?> json) =>
+      SessionInboxUser(
+        id: SessionMessageID.fromJson(asJsonString(json['id'])),
+        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
+        time: SessionInboxUserTime.fromJson(asJsonMap(json['time'])),
+        payload: SessionInboxUserPayload.fromJson(asJsonMap(json['payload'])),
+        delivery: SessionInboxDelivery.fromJson(json['delivery']),
+      );
+
+  @override
+  final SessionMessageID id;
+  @override
+  final SessionID sessionID;
+  final SessionInboxUserTime time;
+  final SessionInboxUserPayload payload;
+  @override
+  final SessionInboxDelivery delivery;
+
+  /// Always `user`.
+  @override
+  String get type => 'user';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+        'sessionID': sessionID,
+        'time': time.toJson(),
+        'type': 'user',
+        'payload': payload.toJson(),
+        'delivery': delivery.wire,
+      };
+}
+
+/// `Session.Inbox.Synthetic`
+final class SessionInboxSynthetic extends SessionInboxInfo {
+  const SessionInboxSynthetic({
+    required this.id,
+    required this.sessionID,
+    required this.time,
+    required this.payload,
+    required this.delivery,
+  });
+
+  factory SessionInboxSynthetic.fromJson(Map<String, Object?> json) =>
+      SessionInboxSynthetic(
+        id: SessionMessageID.fromJson(asJsonString(json['id'])),
+        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
+        time: SessionInboxSyntheticTime.fromJson(asJsonMap(json['time'])),
+        payload:
+            SessionInboxSyntheticPayload.fromJson(asJsonMap(json['payload'])),
+        delivery: SessionInboxDelivery.fromJson(json['delivery']),
+      );
+
+  @override
+  final SessionMessageID id;
+  @override
+  final SessionID sessionID;
+  final SessionInboxSyntheticTime time;
+  final SessionInboxSyntheticPayload payload;
+  @override
+  final SessionInboxDelivery delivery;
+
+  /// Always `synthetic`.
+  @override
+  String get type => 'synthetic';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+        'sessionID': sessionID,
+        'time': time.toJson(),
+        'type': 'synthetic',
+        'payload': payload.toJson(),
+        'delivery': delivery.wire,
+      };
+}
+
+/// `Session.Inbox.Move`
+final class SessionInboxMove extends SessionInboxInfo {
+  const SessionInboxMove({
+    required this.id,
+    required this.sessionID,
+    required this.time,
+    required this.delivery,
+    required this.payload,
+  });
+
+  factory SessionInboxMove.fromJson(Map<String, Object?> json) =>
+      SessionInboxMove(
+        id: SessionMessageID.fromJson(asJsonString(json['id'])),
+        sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
+        time: SessionInboxMoveTime.fromJson(asJsonMap(json['time'])),
+        delivery: SessionInboxDelivery.fromJson(json['delivery']),
+        payload: SessionInboxMovePayload.fromJson(asJsonMap(json['payload'])),
+      );
+
+  @override
+  final SessionMessageID id;
+  @override
+  final SessionID sessionID;
+  final SessionInboxMoveTime time;
+  @override
+  final SessionInboxDelivery delivery;
+  final SessionInboxMovePayload payload;
+
+  /// Always `move`.
+  @override
+  String get type => 'move';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+        'sessionID': sessionID,
+        'time': time.toJson(),
+        'type': 'move',
+        'delivery': delivery.wire,
+        'payload': payload.toJson(),
+      };
+}
+
+/// `Session.Info`
+final class SessionInfo {
+  const SessionInfo({
+    required this.id,
+    this.parentID,
+    this.fork,
+    required this.projectID,
+    this.agent,
+    this.model,
+    required this.cost,
+    required this.tokens,
+    this.outcome,
+    required this.time,
+    this.title,
+    this.subpath,
+    this.metadata,
+    this.permissions,
+    this.revert,
+    required this.location,
+  });
+
+  factory SessionInfo.fromJson(Map<String, Object?> json) => SessionInfo(
+        id: SessionID.fromJson(asJsonString(json['id'])),
+        parentID: json['parentID'] == null
+            ? null
+            : SessionID.fromJson(asJsonString(json['parentID'])),
+        fork: json['fork'] == null
+            ? null
+            : SessionInfoFork.fromJson(asJsonMap(json['fork'])),
+        projectID: ProjectID.fromJson(asJsonString(json['projectID'])),
+        agent: json['agent'] == null
+            ? null
+            : AgentID.fromJson(asJsonString(json['agent'])),
+        model: json['model'] == null
+            ? null
+            : ModelRef.fromJson(asJsonMap(json['model'])),
+        cost: MoneyUSD.fromJson(asJsonDouble(json['cost'])),
+        tokens: TokenUsageInfo.fromJson(asJsonMap(json['tokens'])),
+        outcome: json['outcome'] == null
+            ? null
+            : SessionInfoOutcome.fromJson(json['outcome']),
+        time: SessionInfoTime.fromJson(asJsonMap(json['time'])),
+        title: decodeOptionalString(json, 'title'),
+        subpath: json['subpath'] == null
+            ? null
+            : RelativePath.fromJson(asJsonString(json['subpath'])),
+        metadata: json['metadata'] == null ? null : asJsonMap(json['metadata']),
+        permissions: json['permissions'] == null
+            ? null
+            : jsonList(json['permissions'],
+                (item) => PermissionRule.fromJson(asJsonMap(item))),
+        revert: json['revert'] == null
+            ? null
+            : SessionRevert.fromJson(asJsonMap(json['revert'])),
+        location: LocationRef.fromJson(json['location']),
+      );
+
+  final SessionID id;
+  final SessionID? parentID;
+  final SessionInfoFork? fork;
+  final ProjectID projectID;
+  final AgentID? agent;
+  final ModelRef? model;
+  final MoneyUSD cost;
+  final TokenUsageInfo tokens;
+  final SessionInfoOutcome? outcome;
+  final SessionInfoTime time;
+  final String? title;
+  final RelativePath? subpath;
+  final Map<String, Object?>? metadata;
+  final List<PermissionRule>? permissions;
+  final SessionRevert? revert;
+  final LocationRef location;
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'type': type,
-        'message': message,
-        if (status != null) 'status': status!,
-        if (response != null) 'response': response!.toJson(),
+        'id': id,
+        if (parentID != null) 'parentID': parentID!,
+        if (fork != null) 'fork': fork!.toJson(),
+        'projectID': projectID,
+        if (agent != null) 'agent': agent!,
+        if (model != null) 'model': model!.toJson(),
+        'cost': cost,
+        'tokens': tokens.toJson(),
+        if (outcome != null) 'outcome': outcome!.wire,
+        'time': time.toJson(),
+        if (title != null) 'title': title!,
+        if (subpath != null) 'subpath': subpath!,
+        if (metadata != null) 'metadata': metadata!,
+        if (permissions != null)
+          'permissions': [for (final item in permissions!) item.toJson()],
+        if (revert != null) 'revert': revert!.toJson(),
+        'location': location.toJson(),
+      };
+}
+
+/// `Session.Message.AgentSelected`
+final class SessionMessageAgentSelected extends SessionMessageInfo {
+  const SessionMessageAgentSelected({
+    required this.id,
+    this.metadata,
+    required this.time,
+    required this.agent,
+    this.previous,
+  });
+
+  factory SessionMessageAgentSelected.fromJson(Map<String, Object?> json) =>
+      SessionMessageAgentSelected(
+        id: SessionMessageID.fromJson(asJsonString(json['id'])),
+        metadata: json['metadata'] == null ? null : asJsonMap(json['metadata']),
+        time: SessionMessageAgentSelectedTime.fromJson(asJsonMap(json['time'])),
+        agent: AgentID.fromJson(asJsonString(json['agent'])),
+        previous: json['previous'] == null
+            ? null
+            : AgentID.fromJson(asJsonString(json['previous'])),
+      );
+
+  @override
+  final SessionMessageID id;
+  @override
+  final Map<String, Object?>? metadata;
+  final SessionMessageAgentSelectedTime time;
+  final AgentID agent;
+  final AgentID? previous;
+
+  /// Always `agent-switched`.
+  @override
+  String get type => 'agent-switched';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+        if (metadata != null) 'metadata': metadata!,
+        'time': time.toJson(),
+        'type': 'agent-switched',
+        'agent': agent,
+        if (previous != null) 'previous': previous!,
+      };
+}
+
+/// `Session.Message.Assistant`
+final class SessionMessageAssistant extends SessionMessageInfo {
+  const SessionMessageAssistant({
+    required this.id,
+    this.metadata,
+    required this.time,
+    required this.agent,
+    required this.model,
+    required this.content,
+    this.snapshot,
+    this.finish,
+    this.rawFinish,
+    this.native,
+    this.cost,
+    this.tokens,
+    this.error,
+    this.retry,
+  });
+
+  factory SessionMessageAssistant.fromJson(Map<String, Object?> json) =>
+      SessionMessageAssistant(
+        id: SessionMessageID.fromJson(asJsonString(json['id'])),
+        metadata: json['metadata'] == null ? null : asJsonMap(json['metadata']),
+        time: SessionMessageAssistantTime.fromJson(asJsonMap(json['time'])),
+        agent: AgentID.fromJson(asJsonString(json['agent'])),
+        model: ModelRef.fromJson(asJsonMap(json['model'])),
+        content: jsonList(json['content'],
+            (item) => SessionMessageAssistantContent.fromJson(asJsonMap(item))),
+        snapshot: json['snapshot'] == null
+            ? null
+            : SessionMessageAssistantSnapshot.fromJson(
+                asJsonMap(json['snapshot'])),
+        finish: json['finish'] == null
+            ? null
+            : SessionMessageAssistantFinish.fromJson(json['finish']),
+        rawFinish: decodeOptionalString(json, 'rawFinish'),
+        native: json['native'] == null ? null : asJsonMap(json['native']),
+        cost: json['cost'] == null
+            ? null
+            : MoneyUSD.fromJson(asJsonDouble(json['cost'])),
+        tokens: json['tokens'] == null
+            ? null
+            : TokenUsageInfo.fromJson(asJsonMap(json['tokens'])),
+        error: json['error'] == null
+            ? null
+            : SessionStructuredError.fromJson(asJsonMap(json['error'])),
+        retry: json['retry'] == null
+            ? null
+            : SessionMessageAssistantRetry.fromJson(asJsonMap(json['retry'])),
+      );
+
+  @override
+  final SessionMessageID id;
+  @override
+  final Map<String, Object?>? metadata;
+  final SessionMessageAssistantTime time;
+  final AgentID agent;
+  final ModelRef model;
+  final List<SessionMessageAssistantContent> content;
+  final SessionMessageAssistantSnapshot? snapshot;
+  final SessionMessageAssistantFinish? finish;
+  final String? rawFinish;
+  final Map<String, Object?>? native;
+  final MoneyUSD? cost;
+  final TokenUsageInfo? tokens;
+  final SessionStructuredError? error;
+  final SessionMessageAssistantRetry? retry;
+
+  /// Always `assistant`.
+  @override
+  String get type => 'assistant';
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+        if (metadata != null) 'metadata': metadata!,
+        'time': time.toJson(),
+        'type': 'assistant',
+        'agent': agent,
+        'model': model.toJson(),
+        'content': [for (final item in content) item.toJson()],
+        if (snapshot != null) 'snapshot': snapshot!.toJson(),
+        if (finish != null) 'finish': finish!.wire,
+        if (rawFinish != null) 'rawFinish': rawFinish!,
+        if (native != null) 'native': native!,
+        if (cost != null) 'cost': cost!,
+        if (tokens != null) 'tokens': tokens!.toJson(),
+        if (error != null) 'error': error!.toJson(),
+        if (retry != null) 'retry': retry!.toJson(),
       };
 }
 
@@ -1064,7 +1324,6 @@ final class SessionMessageCompactionRunning extends SessionMessageCompaction {
     required this.time,
     required this.reason,
     required this.summary,
-    required this.recent,
   });
 
   factory SessionMessageCompactionRunning.fromJson(Map<String, Object?> json) =>
@@ -1075,7 +1334,6 @@ final class SessionMessageCompactionRunning extends SessionMessageCompaction {
             asJsonMap(json['time'])),
         reason: SessionMessageCompactionRunningReason.fromJson(json['reason']),
         summary: decodeString(json, 'summary'),
-        recent: decodeString(json, 'recent'),
       );
 
   @override
@@ -1085,7 +1343,6 @@ final class SessionMessageCompactionRunning extends SessionMessageCompaction {
   final SessionMessageCompactionRunningTime time;
   final SessionMessageCompactionRunningReason reason;
   final String summary;
-  final String recent;
 
   /// Always `compaction`.
   @override
@@ -1104,7 +1361,6 @@ final class SessionMessageCompactionRunning extends SessionMessageCompaction {
         'status': 'running',
         'reason': reason.wire,
         'summary': summary,
-        'recent': recent,
       };
 }
 
@@ -1116,10 +1372,8 @@ final class SessionMessageCompactionCompleted extends SessionMessageCompaction {
     required this.time,
     required this.reason,
     this.model,
-    this.providerState,
+    this.native,
     required this.summary,
-    required this.recent,
-    this.providerContext,
     this.cost,
     this.tokens,
   });
@@ -1136,15 +1390,8 @@ final class SessionMessageCompactionCompleted extends SessionMessageCompaction {
         model: json['model'] == null
             ? null
             : ModelRef.fromJson(asJsonMap(json['model'])),
-        providerState: json['providerState'] == null
-            ? null
-            : asJsonMap(json['providerState']),
+        native: json['native'] == null ? null : asJsonMap(json['native']),
         summary: decodeString(json, 'summary'),
-        recent: decodeString(json, 'recent'),
-        providerContext: json['providerContext'] == null
-            ? null
-            : SessionProviderContext.fromJson(
-                asJsonMap(json['providerContext'])),
         cost: json['cost'] == null
             ? null
             : MoneyUSD.fromJson(asJsonDouble(json['cost'])),
@@ -1160,10 +1407,8 @@ final class SessionMessageCompactionCompleted extends SessionMessageCompaction {
   final SessionMessageCompactionCompletedTime time;
   final SessionMessageCompactionCompletedReason reason;
   final ModelRef? model;
-  final Map<String, Object?>? providerState;
+  final Map<String, Object?>? native;
   final String summary;
-  final String recent;
-  final SessionProviderContext? providerContext;
   final MoneyUSD? cost;
   final TokenUsageInfo? tokens;
 
@@ -1184,79 +1429,10 @@ final class SessionMessageCompactionCompleted extends SessionMessageCompaction {
         'status': 'completed',
         'reason': reason.wire,
         if (model != null) 'model': model!.toJson(),
-        if (providerState != null) 'providerState': providerState!,
+        if (native != null) 'native': native!,
         'summary': summary,
-        'recent': recent,
-        if (providerContext != null)
-          'providerContext': providerContext!.toJson(),
         if (cost != null) 'cost': cost!,
         if (tokens != null) 'tokens': tokens!.toJson(),
-      };
-}
-
-/// `Session.ProviderContext`
-final class SessionProviderContext {
-  const SessionProviderContext({
-    required this.version,
-    required this.provenance,
-    required this.messages,
-  });
-
-  factory SessionProviderContext.fromJson(Map<String, Object?> json) =>
-      SessionProviderContext(
-        version: decodeNumber(json, 'version'),
-        provenance: SessionProviderContextProvenance.fromJson(
-            asJsonMap(json['provenance'])),
-        messages: json['messages'],
-      );
-
-  final double version;
-  final SessionProviderContextProvenance provenance;
-  final Object? messages;
-
-  Map<String, Object?> toJson() => <String, Object?>{
-        'version': version,
-        'provenance': provenance.toJson(),
-        'messages': messages,
-      };
-}
-
-/// `Session.ProviderContext.Provenance`
-final class SessionProviderContextProvenance {
-  const SessionProviderContextProvenance({
-    required this.providerID,
-    required this.provider,
-    required this.modelID,
-    required this.route,
-    required this.protocol,
-    required this.endpoint,
-  });
-
-  factory SessionProviderContextProvenance.fromJson(
-          Map<String, Object?> json) =>
-      SessionProviderContextProvenance(
-        providerID: ProviderID.fromJson(asJsonString(json['providerID'])),
-        provider: decodeString(json, 'provider'),
-        modelID: decodeString(json, 'modelID'),
-        route: decodeString(json, 'route'),
-        protocol: decodeString(json, 'protocol'),
-        endpoint: decodeString(json, 'endpoint'),
-      );
-
-  final ProviderID providerID;
-  final String provider;
-  final String modelID;
-  final String route;
-  final String protocol;
-  final String endpoint;
-
-  Map<String, Object?> toJson() => <String, Object?>{
-        'providerID': providerID,
-        'provider': provider,
-        'modelID': modelID,
-        'route': route,
-        'protocol': protocol,
-        'endpoint': endpoint,
       };
 }
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- Updated for `opencode_sdk_dart` 0.2.0 and `opencode_effect` 0.2.0.
+- Stateless text generation now uses `POST /api/experimental/generate/text`;
+  the legacy endpoint remains available through `generate.textLegacy`.
+- Model discovery still defaults to chat models, so the new decision and image
+  model types are not offered for chat.
+- Test server updated for the new generate endpoint.
+
 ## 0.1.0
 
 - Initial release of `genkit_opencode_custom` (renamed from

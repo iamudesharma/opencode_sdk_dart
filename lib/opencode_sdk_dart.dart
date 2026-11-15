@@ -27,6 +27,7 @@ export 'src/core/sse.dart';
 export 'src/core/transport.dart';
 export 'src/generated/client.dart';
 export 'src/generated/models.dart';
+export 'src/mcp/mcp_socket.dart';
 export 'src/pty/pty_extensions.dart';
 export 'src/pty/pty_socket.dart';
 export 'src/rpc/rpc.dart';

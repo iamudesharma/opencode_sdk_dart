@@ -13,45 +13,60 @@ import 'retry.dart';
 /// the server default, matching the `location[directory]` query parameter of
 /// the OpenCode HTTP API.
 ///
-/// This type is also used for the wire shape `Location.PublicRef` returned by
-/// the server.
+/// This type is also used for the wire shape `Location.Ref` returned by the
+/// server.
 final class LocationRef {
   /// Creates a reference to [directory], or to the server default when
   /// [directory] is omitted.
-  const LocationRef([this.directory]);
+  const LocationRef([this.directory, this.workspaceID]);
 
   /// Creates a reference to a concrete directory.
-  const LocationRef.directory(String this.directory);
+  const LocationRef.directory(String this.directory, {this.workspaceID});
 
-  /// Decodes a `Location.PublicRef` payload.
+  /// Decodes a `Location.Ref` payload.
   factory LocationRef.fromJson(Object? json) {
     final map = asJsonMap(json);
     final directory = map['directory'];
+    final workspaceID = map['workspaceID'];
     return LocationRef(
       directory == null
           ? null
           : asJsonString(directory, path: 'location.directory'),
+      workspaceID == null
+          ? null
+          : asJsonString(workspaceID, path: 'location.workspaceID'),
     );
   }
 
   /// The absolute directory path, when pinned.
   final String? directory;
 
-  /// Encodes this reference to JSON, omitting an absent directory.
+  /// The workspace that owns the directory, when reported by the server.
+  final String? workspaceID;
+
+  /// Encodes this reference to JSON, omitting absent fields.
   JsonMap toJson() => <String, Object?>{
         if (directory != null) 'directory': directory,
+        if (workspaceID != null) 'workspaceID': workspaceID,
       };
 
   @override
   bool operator ==(Object other) =>
-      other is LocationRef && other.directory == directory;
+      other is LocationRef &&
+      other.directory == directory &&
+      other.workspaceID == workspaceID;
 
   @override
-  int get hashCode => directory.hashCode;
+  int get hashCode => Object.hash(directory, workspaceID);
 
   @override
-  String toString() =>
-      directory == null ? 'LocationRef()' : 'LocationRef(${directory!})';
+  String toString() {
+    final parts = <String>[
+      if (directory != null) 'directory: $directory',
+      if (workspaceID != null) 'workspaceID: $workspaceID',
+    ];
+    return parts.isEmpty ? 'LocationRef()' : 'LocationRef(${parts.join(', ')})';
+  }
 }
 
 /// A cooperative cancellation token for in-flight requests and streams.
@@ -125,7 +140,6 @@ final class RequestOptions {
   final RetryPolicy? retry;
 
   @override
-  String toString() =>
-      'RequestOptions(location: $location, headers: $headers, '
+  String toString() => 'RequestOptions(location: $location, headers: $headers, '
       'retry: $retry)';
 }

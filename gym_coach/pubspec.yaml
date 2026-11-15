@@ -12,11 +12,11 @@ dependencies:
   effect_core: ^0.0.3
   file_selector: ^1.0.2
   genkit: ^1.0.0
-  genkit_opencode_custom: ^0.1.0
+  genkit_opencode_custom: ^0.2.0
   http: ^1.2.0
   marionette_flutter: 0.6.0
-  opencode_effect: ^0.1.0
-  opencode_sdk_dart: ^0.1.0
+  opencode_effect: ^0.2.0
+  opencode_sdk_dart: ^0.2.0
   schemantic: ^1.0.0
   web: ^1.1.0
 

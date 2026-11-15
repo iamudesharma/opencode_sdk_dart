@@ -1,3 +1,9 @@
+## 0.2.0
+
+- Updated for `opencode_sdk_dart` 0.2.0 and the latest OpenCode V2 contract.
+- No adapter API changes: the new SDK resources are available through
+  `openCodeCall`/`call`/`read` without regeneration.
+
 ## 0.1.0
 
 Initial release.

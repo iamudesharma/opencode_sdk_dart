@@ -3,7 +3,7 @@ description: >-
   Genkit Dart plugin for OpenCode: serves models from a local or remote
   OpenCode server through opencode_sdk_dart, with an OpenAI-compatible
   Chat Completions client (openAI()) as a companion handle.
-version: 0.1.0
+version: 0.2.0
 repository: https://github.com/iamudesharma/opencode_sdk_dart
 issue_tracker: https://github.com/iamudesharma/opencode_sdk_dart/issues
 
@@ -16,8 +16,8 @@ dependencies:
   http: ^1.6.0
   logging: ^1.3.0
   meta: ^1.17.0
-  opencode_effect: ^0.1.0
-  opencode_sdk_dart: ^0.1.0
+  opencode_effect: ^0.2.0
+  opencode_sdk_dart: ^0.2.0
   schemantic: ^1.0.0
 
 dev_dependencies:

@@ -475,7 +475,7 @@ extension SessionPagination on SessionResource {
     String? limit,
     SessionListOrder? order,
     String? search,
-    Object? parentID,
+    String? parentID,
     AbsolutePath? directory,
     ProjectID? project,
     RelativePath? subpath,

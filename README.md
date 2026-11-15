@@ -26,11 +26,19 @@ consumer projects use it at their service/controller boundary.
 
 ## Highlights
 
-- **Typed resources** for all 28 API groups — `client.session`,
-  `client.pty`, `client.mcp`, `client.permission`, `client.vcs`, and more.
-- **438 generated declarations**: sealed unions with exhaustive `switch`
+- **Typed resources** for all 32 API groups — `client.session`,
+  `client.pty`, `client.mcp`, `client.permission`, `client.vcs`, plus the new
+  `client.voice`, `client.usage`, and `client.experimental` (artifacts,
+  schedules, jobs, media) groups.
+- **813 generated declarations**: sealed unions with exhaustive `switch`
   support, branded scalar types (`extension type SessionID(String)`), real
   Dart enums with wire mapping, and data classes with `fromJson`/`toJson`.
+- **Event filtering**: `client.event.subscribe(types: ...)` narrows the shared
+  stream locally while preserving `server.connected` replay for late
+  subscribers.
+- **Text, image, and decision generation** through `client.generate`, plus
+  voice sessions, artifact/schedule management, usage limits, plugin GUI
+  bundles, heap dumps, and filesystem watch events.
 - **Structured errors**: every `_tag`-encoded error becomes a typed exception
   (`SessionNotFoundError`, `RpcError`, ...) carrying the HTTP status code.
 - **One lazy event connection** shared by native events and plugin RPC, with
@@ -50,7 +58,7 @@ consumer projects use it at their service/controller boundary.
 
 ```yaml
 dependencies:
-  opencode_sdk_dart: ^0.1.0
+  opencode_sdk_dart: ^0.2.0
 ```
 
 ```dart
@@ -161,6 +169,9 @@ by one lazily opened connection:
 
 - no connection opens until the first listener subscribes;
 - late subscribers immediately receive the `server.connected` marker;
+- `types` narrows a subscriber to exact names or prefix wildcards such as
+  `session.*` and `rpc.*`; filtering happens locally because all subscribers
+  share one upstream connection;
 - cancelling one subscription leaves the others running; the last one closes
   the connection;
 - slow consumers buffer up to 4096 events and then fail their stream;
@@ -168,12 +179,14 @@ by one lazily opened connection:
   a new subscription opens a fresh connection.
 
 ```dart
-final subscription = client.event.subscribe().listen((event) {
+final subscription = client.event
+    .subscribe(types: ['session.idle', 'session.text.delta', 'rpc.*'])
+    .listen((event) {
   switch (event.type) {
     case 'server.connected':
       print('connected');
-    case 'session.updated':
-      print(event.data);
+    case 'session.idle':
+      print('turn finished');
   }
 });
 ```
@@ -269,6 +282,22 @@ await socket.close();
 
 `client.persistentPty.connectSocket(...)` mirrors the persistent PTY handshake
 (with `cursor`, `role`, `attachmentID`, and `takeover`).
+
+## Client-hosted MCP
+
+The experimental `client-mcp` endpoint upgrades to a WebSocket where the
+client hosts an MCP server for the duration of the connection:
+
+```dart
+final socket = await client.mcp.connectClientSocket(name: 'my-tools');
+socket.jsonRpc.listen(print);
+socket.send({
+  'jsonrpc': '2.0',
+  'id': 1,
+  'method': 'initialize',
+  'params': <String, Object?>{},
+});
+```
 
 ## Errors
 
@@ -426,7 +455,7 @@ lib/
   src/pty/                        # WebSocket helpers + resource extensions
   src/session/                    # turn streaming + pagination helpers
   src/service/                    # local background service management
-  src/generated/                  # models + 28 resources + client (generated)
+  src/generated/                  # models + 31 resources + client (generated)
 opencode_effect/                  # effect_core adapter: typed effects, layers,
                                   #   pull streams, scoped client lifetime
 chat_app/                         # chat client: macOS + phone web

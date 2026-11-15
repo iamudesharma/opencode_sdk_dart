@@ -111,7 +111,9 @@ final class FakeOpenCodeHost {
         'data': [for (final model in models) _completeModel(model)],
       });
     }
-    if (method == 'POST' && path == '/api/experimental/generate') {
+    if (method == 'POST' &&
+        (path == '/api/experimental/generate' ||
+            path == '/api/experimental/generate/text')) {
       return _json(200, {
         'data': {'text': generateText},
       });

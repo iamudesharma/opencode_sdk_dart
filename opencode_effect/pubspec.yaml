@@ -3,7 +3,7 @@ description: >-
   Effect-based adapter for opencode_sdk_dart: typed error families,
   interruptible calls, scoped client lifetimes, layers and pull streams built
   on effect_core.
-version: 0.1.0
+version: 0.2.0
 repository: https://github.com/iamudesharma/opencode_sdk_dart
 issue_tracker: https://github.com/iamudesharma/opencode_sdk_dart/issues
 
@@ -13,7 +13,7 @@ environment:
 dependencies:
   effect_core: ^0.0.3
   http: ^1.2.0
-  opencode_sdk_dart: ^0.1.0
+  opencode_sdk_dart: ^0.2.0
 
 dev_dependencies:
   lints: ^5.0.0

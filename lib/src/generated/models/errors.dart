@@ -24,6 +24,28 @@ final class AgentNotFoundError extends OpenCodeApiException {
       };
 }
 
+/// `ArtifactNotFoundErrorEncoded`
+final class ArtifactNotFoundError extends OpenCodeApiException {
+  ArtifactNotFoundError({
+    required this.artifactID,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'ArtifactNotFoundError', message: message, raw: raw);
+
+  factory ArtifactNotFoundError.fromJson(Map<String, Object?> json) =>
+      ArtifactNotFoundError(
+        artifactID: decodeString(json, 'artifactID'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String artifactID;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'artifactID': artifactID,
+      };
+}
+
 /// `CommandExecutionErrorEncoded`
 final class CommandExecutionError extends OpenCodeApiException {
   CommandExecutionError({
@@ -409,6 +431,32 @@ final class MessageNotFoundError extends OpenCodeApiException {
       };
 }
 
+/// `ModelNotFoundErrorEncoded`
+final class ModelNotFoundError extends OpenCodeApiException {
+  ModelNotFoundError({
+    required this.providerID,
+    required this.modelID,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'ModelNotFoundError', message: message, raw: raw);
+
+  factory ModelNotFoundError.fromJson(Map<String, Object?> json) =>
+      ModelNotFoundError(
+        providerID: decodeString(json, 'providerID'),
+        modelID: decodeString(json, 'modelID'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String providerID;
+  final String modelID;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'providerID': providerID,
+        'modelID': modelID,
+      };
+}
+
 /// `PermissionNotFoundErrorEncoded`
 final class PermissionNotFoundError extends OpenCodeApiException {
   PermissionNotFoundError({
@@ -428,6 +476,50 @@ final class PermissionNotFoundError extends OpenCodeApiException {
 
   Map<String, Object?> toJson() => <String, Object?>{
         'requestID': requestID,
+      };
+}
+
+/// `PermissionSavedNotFoundErrorEncoded`
+final class PermissionSavedNotFoundError extends OpenCodeApiException {
+  PermissionSavedNotFoundError({
+    required this.id,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'PermissionSavedNotFoundError', message: message, raw: raw);
+
+  factory PermissionSavedNotFoundError.fromJson(Map<String, Object?> json) =>
+      PermissionSavedNotFoundError(
+        id: decodeString(json, 'id'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String id;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'id': id,
+      };
+}
+
+/// `PluginNotFoundErrorEncoded`
+final class PluginNotFoundError extends OpenCodeApiException {
+  PluginNotFoundError({
+    required this.pluginID,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'PluginNotFoundError', message: message, raw: raw);
+
+  factory PluginNotFoundError.fromJson(Map<String, Object?> json) =>
+      PluginNotFoundError(
+        pluginID: decodeString(json, 'pluginID'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String pluginID;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'pluginID': pluginID,
       };
 }
 
@@ -472,6 +564,62 @@ final class ProviderNotFoundError extends OpenCodeApiException {
 
   Map<String, Object?> toJson() => <String, Object?>{
         'providerID': providerID,
+      };
+}
+
+/// `ProviderRequestErrorEncoded`
+final class ProviderRequestError extends OpenCodeApiException {
+  ProviderRequestError({
+    required this.providerID,
+    required this.reason,
+    this.status,
+    this.retryAfterMs,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'ProviderRequestError', message: message, raw: raw);
+
+  factory ProviderRequestError.fromJson(Map<String, Object?> json) =>
+      ProviderRequestError(
+        providerID: decodeString(json, 'providerID'),
+        reason: ProviderRequestErrorReason.fromJson(json['reason']),
+        status: decodeOptionalInt(json, 'status'),
+        retryAfterMs: decodeOptionalInt(json, 'retryAfterMs'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String providerID;
+  final ProviderRequestErrorReason reason;
+  final int? status;
+  final int? retryAfterMs;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'providerID': providerID,
+        'reason': reason.wire,
+        if (status != null) 'status': status!,
+        if (retryAfterMs != null) 'retryAfterMs': retryAfterMs!,
+      };
+}
+
+/// `PtyFeatureUnsupportedErrorEncoded`
+final class PtyFeatureUnsupportedError extends OpenCodeApiException {
+  PtyFeatureUnsupportedError({
+    required this.feature,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'PtyFeatureUnsupportedError', message: message, raw: raw);
+
+  factory PtyFeatureUnsupportedError.fromJson(Map<String, Object?> json) =>
+      PtyFeatureUnsupportedError(
+        feature: decodeString(json, 'feature'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String feature;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'feature': feature,
       };
 }
 
@@ -545,6 +693,28 @@ final class RpcInternalError extends OpenCodeApiException {
   Map<String, Object?> toJson() => <String, Object?>{
         'type': type.wire,
         if (data != null) 'data': data!,
+      };
+}
+
+/// `ScheduleNotFoundErrorEncoded`
+final class ScheduleNotFoundError extends OpenCodeApiException {
+  ScheduleNotFoundError({
+    required this.scheduleID,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'ScheduleNotFoundError', message: message, raw: raw);
+
+  factory ScheduleNotFoundError.fromJson(Map<String, Object?> json) =>
+      ScheduleNotFoundError(
+        scheduleID: decodeString(json, 'scheduleID'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String scheduleID;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'scheduleID': scheduleID,
       };
 }
 
@@ -695,6 +865,36 @@ final class UnknownError extends OpenCodeApiException {
       };
 }
 
+/// `UnsupportedModelErrorEncoded`
+final class UnsupportedModelError extends OpenCodeApiException {
+  UnsupportedModelError({
+    required this.providerID,
+    required this.modelID,
+    required this.capability,
+    required String message,
+    Map<String, Object?>? raw,
+  }) : super(tag: 'UnsupportedModelError', message: message, raw: raw);
+
+  factory UnsupportedModelError.fromJson(Map<String, Object?> json) =>
+      UnsupportedModelError(
+        providerID: decodeString(json, 'providerID'),
+        modelID: decodeString(json, 'modelID'),
+        capability: decodeString(json, 'capability'),
+        message: asJsonString(json['message']),
+        raw: json,
+      );
+
+  final String providerID;
+  final String modelID;
+  final String capability;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'providerID': providerID,
+        'modelID': modelID,
+        'capability': capability,
+      };
+}
+
 /// `VcsInitNotSupportedErrorEncoded`
 final class VcsInitNotSupportedError extends OpenCodeApiException {
   VcsInitNotSupportedError({
@@ -752,6 +952,7 @@ OpenCodeApiException? decodeOpenCodeException(int statusCode, Object? body) {
   if (tag is! String) return null;
   return switch (tag) {
     'AgentNotFoundError' => AgentNotFoundError.fromJson(json),
+    'ArtifactNotFoundError' => ArtifactNotFoundError.fromJson(json),
     'CommandExecutionError' => CommandExecutionError.fromJson(json),
     'CommandNotFoundError' => CommandNotFoundError.fromJson(json),
     'ConflictError' => ConflictError.fromJson(json),
@@ -772,12 +973,19 @@ OpenCodeApiException? decodeOpenCodeException(int statusCode, Object? body) {
     'LocationNotFoundError' => LocationNotFoundError.fromJson(json),
     'McpServerNotFoundError' => McpServerNotFoundError.fromJson(json),
     'MessageNotFoundError' => MessageNotFoundError.fromJson(json),
+    'ModelNotFoundError' => ModelNotFoundError.fromJson(json),
     'PermissionNotFoundError' => PermissionNotFoundError.fromJson(json),
+    'PermissionSavedNotFoundError' =>
+      PermissionSavedNotFoundError.fromJson(json),
+    'PluginNotFoundError' => PluginNotFoundError.fromJson(json),
     'ProjectNotFoundError' => ProjectNotFoundError.fromJson(json),
     'ProviderNotFoundError' => ProviderNotFoundError.fromJson(json),
+    'ProviderRequestError' => ProviderRequestError.fromJson(json),
+    'PtyFeatureUnsupportedError' => PtyFeatureUnsupportedError.fromJson(json),
     'PtyNotFoundError' => PtyNotFoundError.fromJson(json),
     'RpcError' => RpcError.fromJson(json),
     'RpcInternalError' => RpcInternalError.fromJson(json),
+    'ScheduleNotFoundError' => ScheduleNotFoundError.fromJson(json),
     'ServiceUnavailableError' => ServiceUnavailableError.fromJson(json),
     'SessionBusyError' => SessionBusyError.fromJson(json),
     'SessionNotFoundError' => SessionNotFoundError.fromJson(json),
@@ -785,6 +993,7 @@ OpenCodeApiException? decodeOpenCodeException(int statusCode, Object? body) {
     'SkillNotFoundError' => SkillNotFoundError.fromJson(json),
     'UnauthorizedError' => UnauthorizedError.fromJson(json),
     'UnknownError' => UnknownError.fromJson(json),
+    'UnsupportedModelError' => UnsupportedModelError.fromJson(json),
     'VcsInitNotSupportedError' => VcsInitNotSupportedError.fromJson(json),
     'WorktreeError' => WorktreeError.fromJson(json),
     _ => null,

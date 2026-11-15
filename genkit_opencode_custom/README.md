@@ -9,7 +9,7 @@ A Genkit Dart plugin for **OpenCode**: it serves models from a local or remote
 ```yaml
 dependencies:
   genkit: ^1.0.0
-  genkit_opencode_custom: ^0.1.0
+  genkit_opencode_custom: ^0.2.0
 ```
 
 ```dart
@@ -76,7 +76,7 @@ How the bridge maps Genkit onto the server:
 | Genkit | OpenCode server |
 | --- | --- |
 | model discovery (`list()`) | `GET /api/model` (real capabilities, enabled flag) |
-| unary generate | `POST /api/experimental/generate` with a resolved `ModelRef` (text-only requests) |
+| unary generate | `POST /api/experimental/generate/text` with a resolved `ModelRef` (text-only requests) |
 | streaming | session + `POST /api/session/{id}/prompt` + the shared event stream (`session.text.delta`, `session.reasoning.delta`, `session.text.ended`/`reasoning.ended` reconciliation, `session.step.ended` usage, `session.execution.*` completion) |
 | structured output | the output schema is appended to the prompt as JSON instructions; Genkit parses the response, so `outputSchema` works on any server model |
 | media inputs | media parts become prompt file attachments (`files`), so the request runs through a session |
