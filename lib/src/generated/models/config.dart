@@ -167,6 +167,7 @@ final class ConfigInfoEncoded {
     this.share,
     this.enterprise,
     this.username,
+    this.timezone,
     this.permissions,
     this.policies,
     this.agents,
@@ -207,6 +208,7 @@ final class ConfigInfoEncoded {
             : ConfigInfoEncodedEnterprise.fromJson(
                 asJsonMap(json['enterprise'])),
         username: decodeOptionalString(json, 'username'),
+        timezone: decodeOptionalString(json, 'timezone'),
         permissions: json['permissions'] == null
             ? null
             : jsonList(json['permissions'],
@@ -272,6 +274,7 @@ final class ConfigInfoEncoded {
   final ConfigInfoEncodedShare? share;
   final ConfigInfoEncodedEnterprise? enterprise;
   final String? username;
+  final String? timezone;
   final List<PermissionRule>? permissions;
   final List<ConfigInfoEncodedPolicies>? policies;
   final Map<String, Object?>? agents;
@@ -305,6 +308,7 @@ final class ConfigInfoEncoded {
         if (share != null) 'share': share!.wire,
         if (enterprise != null) 'enterprise': enterprise!.toJson(),
         if (username != null) 'username': username!,
+        if (timezone != null) 'timezone': timezone!,
         if (permissions != null)
           'permissions': [for (final item in permissions!) item.toJson()],
         if (policies != null)
@@ -447,29 +451,123 @@ final class ConfigLSPServerEncoded {
 final class ConfigModelCapabilities {
   const ConfigModelCapabilities({
     this.tools,
+    this.freeform,
     this.input,
     this.output,
+    this.temperature,
+    this.reasoning,
   });
 
   factory ConfigModelCapabilities.fromJson(Map<String, Object?> json) =>
       ConfigModelCapabilities(
         tools: decodeOptionalBool(json, 'tools'),
+        freeform: json['freeform'] == null
+            ? null
+            : jsonList(
+                json['freeform'], (item) => ToolFreeformFormat.fromJson(item)),
         input: json['input'] == null
             ? null
             : jsonList(json['input'], (item) => asJsonString(item)),
         output: json['output'] == null
             ? null
             : jsonList(json['output'], (item) => asJsonString(item)),
+        temperature: decodeOptionalBool(json, 'temperature'),
+        reasoning: json['reasoning'] == null
+            ? null
+            : ConfigModelReasoning.fromJson(asJsonMap(json['reasoning'])),
       );
 
   final bool? tools;
+  final List<ToolFreeformFormat>? freeform;
   final List<String>? input;
   final List<String>? output;
+  final bool? temperature;
+  final ConfigModelReasoning? reasoning;
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (tools != null) 'tools': tools!,
+        if (freeform != null)
+          'freeform': [for (final item in freeform!) item.wire],
         if (input != null) 'input': input!,
         if (output != null) 'output': output!,
+        if (temperature != null) 'temperature': temperature!,
+        if (reasoning != null) 'reasoning': reasoning!.toJson(),
+      };
+}
+
+/// `Config.Model.Reasoning`
+sealed class ConfigModelReasoning {
+  const ConfigModelReasoning();
+
+  /// Decodes a payload into the matching variant.
+  factory ConfigModelReasoning.fromJson(Map<String, Object?> json) {
+    final value = json['supported'];
+    return switch (value) {
+      'false' => ConfigModelReasoningFalse.fromJson(json),
+      'true' => ConfigModelReasoningTrue.fromJson(json),
+      _ => throw OpenCodeDecodeException(
+          'Unknown Config.Model.Reasoning discriminator: $value'),
+    };
+  }
+
+  /// Present on every variant (`supported`).
+  bool get supported;
+
+  /// Encodes this value to JSON.
+  Map<String, Object?> toJson();
+}
+
+/// `ConfigModelReasoningFalse`
+final class ConfigModelReasoningFalse extends ConfigModelReasoning {
+  const ConfigModelReasoningFalse();
+
+  factory ConfigModelReasoningFalse.fromJson(Map<String, Object?> json) =>
+      ConfigModelReasoningFalse();
+
+  /// Always `false`.
+  @override
+  bool get supported => false;
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'supported': false,
+      };
+}
+
+/// `ConfigModelReasoningTrue`
+final class ConfigModelReasoningTrue extends ConfigModelReasoning {
+  const ConfigModelReasoningTrue({
+    this.toggle,
+    this.effort,
+    this.budget,
+  });
+
+  factory ConfigModelReasoningTrue.fromJson(Map<String, Object?> json) =>
+      ConfigModelReasoningTrue(
+        toggle: decodeOptionalBool(json, 'toggle'),
+        effort: json['effort'] == null
+            ? null
+            : jsonList(json['effort'], (item) => asJsonString(item)),
+        budget: json['budget'] == null
+            ? null
+            : ConfigModelReasoningTrueBudget.fromJson(
+                asJsonMap(json['budget'])),
+      );
+
+  final bool? toggle;
+  final List<String>? effort;
+  final ConfigModelReasoningTrueBudget? budget;
+
+  /// Always `true`.
+  @override
+  bool get supported => true;
+
+  @override
+  Map<String, Object?> toJson() => <String, Object?>{
+        'supported': true,
+        if (toggle != null) 'toggle': toggle!,
+        if (effort != null) 'effort': effort!,
+        if (budget != null) 'budget': budget!.toJson(),
       };
 }
 
@@ -511,11 +609,43 @@ final class ConfigModelCostEncoded {
 final class ConfigModelSettings {
   const ConfigModelSettings({
     this.compaction,
+    this.cache,
     this.encoding,
   });
 
   factory ConfigModelSettings.fromJson(Map<String, Object?> json) =>
       ConfigModelSettings(
+        compaction: json['compaction'] == null
+            ? null
+            : ProviderCompaction.fromJson(asJsonMap(json['compaction'])),
+        cache: json['cache'] == null
+            ? null
+            : ProviderCache.fromJson(asJsonMap(json['cache'])),
+        encoding: json['encoding'] == null
+            ? null
+            : ProviderEncoding.fromJson(json['encoding']),
+      );
+
+  final ProviderCompaction? compaction;
+  final ProviderCache? cache;
+  final ProviderEncoding? encoding;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        if (compaction != null) 'compaction': compaction!.toJson(),
+        if (cache != null) 'cache': cache!.toJson(),
+        if (encoding != null) 'encoding': encoding!.wire,
+      };
+}
+
+/// `Config.Model.VariantSettings`
+final class ConfigModelVariantSettings {
+  const ConfigModelVariantSettings({
+    this.compaction,
+    this.encoding,
+  });
+
+  factory ConfigModelVariantSettings.fromJson(Map<String, Object?> json) =>
+      ConfigModelVariantSettings(
         compaction: json['compaction'] == null
             ? null
             : ProviderCompaction.fromJson(asJsonMap(json['compaction'])),
@@ -537,8 +667,10 @@ final class ConfigModelSettings {
 final class ConfigModelEncoded {
   const ConfigModelEncoded({
     this.modelID,
+    this.type,
     this.family,
     this.name,
+    this.releaseDate,
     this.compatibility,
     this.package,
     this.settings,
@@ -554,8 +686,10 @@ final class ConfigModelEncoded {
   factory ConfigModelEncoded.fromJson(Map<String, Object?> json) =>
       ConfigModelEncoded(
         modelID: decodeOptionalString(json, 'modelID'),
+        type: decodeOptionalString(json, 'type'),
         family: decodeOptionalString(json, 'family'),
         name: decodeOptionalString(json, 'name'),
+        releaseDate: decodeOptionalString(json, 'releaseDate'),
         compatibility: json['compatibility'] == null
             ? null
             : ModelCompatibility.fromJson(asJsonMap(json['compatibility'])),
@@ -580,8 +714,10 @@ final class ConfigModelEncoded {
       );
 
   final String? modelID;
+  final String? type;
   final String? family;
   final String? name;
+  final String? releaseDate;
   final ModelCompatibility? compatibility;
   final String? package;
   final ConfigModelSettings? settings;
@@ -595,8 +731,10 @@ final class ConfigModelEncoded {
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (modelID != null) 'modelID': modelID!,
+        if (type != null) 'type': type!,
         if (family != null) 'family': family!,
         if (name != null) 'name': name!,
+        if (releaseDate != null) 'releaseDate': releaseDate!,
         if (compatibility != null) 'compatibility': compatibility!.toJson(),
         if (package != null) 'package': package!,
         if (settings != null) 'settings': settings!.toJson(),
@@ -657,8 +795,10 @@ final class ConfigProviderSettings {
     this.headerTimeout,
     this.chunkTimeout,
     this.compaction,
+    this.cache,
     this.transport,
     this.encoding,
+    this.tls,
   });
 
   factory ConfigProviderSettings.fromJson(Map<String, Object?> json) =>
@@ -669,28 +809,38 @@ final class ConfigProviderSettings {
         compaction: json['compaction'] == null
             ? null
             : ProviderCompaction.fromJson(asJsonMap(json['compaction'])),
+        cache: json['cache'] == null
+            ? null
+            : ProviderCache.fromJson(asJsonMap(json['cache'])),
         transport: json['transport'] == null
             ? null
             : ProviderTransport.fromJson(json['transport']),
         encoding: json['encoding'] == null
             ? null
             : ProviderEncoding.fromJson(json['encoding']),
+        tls: json['tls'] == null
+            ? null
+            : ProviderTls.fromJson(asJsonMap(json['tls'])),
       );
 
   final Object? timeout;
   final Object? headerTimeout;
   final Object? chunkTimeout;
   final ProviderCompaction? compaction;
+  final ProviderCache? cache;
   final ProviderTransport? transport;
   final ProviderEncoding? encoding;
+  final ProviderTls? tls;
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (timeout != null) 'timeout': timeout!,
         if (headerTimeout != null) 'headerTimeout': headerTimeout!,
         if (chunkTimeout != null) 'chunkTimeout': chunkTimeout!,
         if (compaction != null) 'compaction': compaction!.toJson(),
+        if (cache != null) 'cache': cache!.toJson(),
         if (transport != null) 'transport': transport!.wire,
         if (encoding != null) 'encoding': encoding!.wire,
+        if (tls != null) 'tls': tls!.toJson(),
       };
 }
 
@@ -868,10 +1018,10 @@ final class ConfigWebSearchInfoEncoded {
 
   factory ConfigWebSearchInfoEncoded.fromJson(Map<String, Object?> json) =>
       ConfigWebSearchInfoEncoded(
-        provider: json['provider'],
+        provider: decodeString(json, 'provider'),
       );
 
-  final Object? provider;
+  final String provider;
 
   Map<String, Object?> toJson() => <String, Object?>{
         'provider': provider,

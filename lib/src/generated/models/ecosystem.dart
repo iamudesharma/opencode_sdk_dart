@@ -60,8 +60,10 @@ final class ProviderSettings {
     this.headerTimeout,
     this.chunkTimeout,
     this.compaction,
+    this.cache,
     this.transport,
     this.encoding,
+    this.tls,
   });
 
   factory ProviderSettings.fromJson(Map<String, Object?> json) =>
@@ -72,28 +74,38 @@ final class ProviderSettings {
         compaction: json['compaction'] == null
             ? null
             : ProviderCompaction.fromJson(asJsonMap(json['compaction'])),
+        cache: json['cache'] == null
+            ? null
+            : ProviderCache.fromJson(asJsonMap(json['cache'])),
         transport: json['transport'] == null
             ? null
             : ProviderTransport.fromJson(json['transport']),
         encoding: json['encoding'] == null
             ? null
             : ProviderEncoding.fromJson(json['encoding']),
+        tls: json['tls'] == null
+            ? null
+            : ProviderTls.fromJson(asJsonMap(json['tls'])),
       );
 
   final Object? timeout;
   final Object? headerTimeout;
   final Object? chunkTimeout;
   final ProviderCompaction? compaction;
+  final ProviderCache? cache;
   final ProviderTransport? transport;
   final ProviderEncoding? encoding;
+  final ProviderTls? tls;
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (timeout != null) 'timeout': timeout!,
         if (headerTimeout != null) 'headerTimeout': headerTimeout!,
         if (chunkTimeout != null) 'chunkTimeout': chunkTimeout!,
         if (compaction != null) 'compaction': compaction!.toJson(),
+        if (cache != null) 'cache': cache!.toJson(),
         if (transport != null) 'transport': transport!.wire,
         if (encoding != null) 'encoding': encoding!.wire,
+        if (tls != null) 'tls': tls!.toJson(),
       };
 }
 
@@ -153,6 +165,54 @@ final class ProviderCompactionNative extends ProviderCompaction {
       };
 }
 
+/// `Provider.Cache`
+final class ProviderCache {
+  const ProviderCache({
+    this.ttl,
+    this.warming,
+  });
+
+  factory ProviderCache.fromJson(Map<String, Object?> json) => ProviderCache(
+        ttl: json['ttl'] == null
+            ? null
+            : ProviderCacheTTL.fromJson(asJsonString(json['ttl'])),
+        warming: json['warming'],
+      );
+
+  final ProviderCacheTTL? ttl;
+  final Object? warming;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        if (ttl != null) 'ttl': ttl!,
+        if (warming != null) 'warming': warming!,
+      };
+}
+
+/// `Provider.Tls`
+final class ProviderTls {
+  const ProviderTls({
+    required this.cert,
+    required this.key,
+    this.passphrase,
+  });
+
+  factory ProviderTls.fromJson(Map<String, Object?> json) => ProviderTls(
+        cert: decodeString(json, 'cert'),
+        key: decodeString(json, 'key'),
+        passphrase: decodeOptionalString(json, 'passphrase'),
+      );
+
+  final String cert;
+  final String key;
+  final String? passphrase;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'cert': cert,
+        'key': key,
+        if (passphrase != null) 'passphrase': passphrase!,
+      };
+}
+
 /// `Model.Compatibility`
 final class ModelCompatibility {
   const ModelCompatibility({
@@ -162,9 +222,11 @@ final class ModelCompatibility {
     this.requireFinishReason,
     this.requireAssistantAfterTool,
     this.supportsPromptCacheKey,
+    this.streamUsage,
     this.cacheFormat,
     this.supportsThinkingBlockBinding,
     this.supportsEffortUpdates,
+    this.mediaInput,
   });
 
   factory ModelCompatibility.fromJson(Map<String, Object?> json) =>
@@ -179,6 +241,7 @@ final class ModelCompatibility {
             decodeOptionalBool(json, 'requireAssistantAfterTool'),
         supportsPromptCacheKey:
             decodeOptionalBool(json, 'supportsPromptCacheKey'),
+        streamUsage: decodeOptionalBool(json, 'streamUsage'),
         cacheFormat: json['cacheFormat'] == null
             ? null
             : ModelCacheFormat.fromJson(json['cacheFormat']),
@@ -186,6 +249,9 @@ final class ModelCompatibility {
             decodeOptionalBool(json, 'supportsThinkingBlockBinding'),
         supportsEffortUpdates:
             decodeOptionalBool(json, 'supportsEffortUpdates'),
+        mediaInput: json['mediaInput'] == null
+            ? null
+            : ModelMediaInput.fromJson(json['mediaInput']),
       );
 
   final String? reasoningField;
@@ -194,9 +260,11 @@ final class ModelCompatibility {
   final bool? requireFinishReason;
   final bool? requireAssistantAfterTool;
   final bool? supportsPromptCacheKey;
+  final bool? streamUsage;
   final ModelCacheFormat? cacheFormat;
   final bool? supportsThinkingBlockBinding;
   final bool? supportsEffortUpdates;
+  final ModelMediaInput? mediaInput;
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (reasoningField != null) 'reasoningField': reasoningField!,
@@ -208,11 +276,13 @@ final class ModelCompatibility {
           'requireAssistantAfterTool': requireAssistantAfterTool!,
         if (supportsPromptCacheKey != null)
           'supportsPromptCacheKey': supportsPromptCacheKey!,
+        if (streamUsage != null) 'streamUsage': streamUsage!,
         if (cacheFormat != null) 'cacheFormat': cacheFormat!.wire,
         if (supportsThinkingBlockBinding != null)
           'supportsThinkingBlockBinding': supportsThinkingBlockBinding!,
         if (supportsEffortUpdates != null)
           'supportsEffortUpdates': supportsEffortUpdates!,
+        if (mediaInput != null) 'mediaInput': mediaInput!.wire,
       };
 }
 
@@ -225,7 +295,9 @@ final class ProviderCompatibility {
     this.requireFinishReason,
     this.requireAssistantAfterTool,
     this.supportsPromptCacheKey,
+    this.streamUsage,
     this.cacheFormat,
+    this.mediaInput,
   });
 
   factory ProviderCompatibility.fromJson(Map<String, Object?> json) =>
@@ -240,9 +312,13 @@ final class ProviderCompatibility {
             decodeOptionalBool(json, 'requireAssistantAfterTool'),
         supportsPromptCacheKey:
             decodeOptionalBool(json, 'supportsPromptCacheKey'),
+        streamUsage: decodeOptionalBool(json, 'streamUsage'),
         cacheFormat: json['cacheFormat'] == null
             ? null
             : ModelCacheFormat.fromJson(json['cacheFormat']),
+        mediaInput: json['mediaInput'] == null
+            ? null
+            : ModelMediaInput.fromJson(json['mediaInput']),
       );
 
   final String? reasoningField;
@@ -251,7 +327,9 @@ final class ProviderCompatibility {
   final bool? requireFinishReason;
   final bool? requireAssistantAfterTool;
   final bool? supportsPromptCacheKey;
+  final bool? streamUsage;
   final ModelCacheFormat? cacheFormat;
+  final ModelMediaInput? mediaInput;
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (reasoningField != null) 'reasoningField': reasoningField!,
@@ -263,7 +341,9 @@ final class ProviderCompatibility {
           'requireAssistantAfterTool': requireAssistantAfterTool!,
         if (supportsPromptCacheKey != null)
           'supportsPromptCacheKey': supportsPromptCacheKey!,
+        if (streamUsage != null) 'streamUsage': streamUsage!,
         if (cacheFormat != null) 'cacheFormat': cacheFormat!.wire,
+        if (mediaInput != null) 'mediaInput': mediaInput!.wire,
       };
 }
 
@@ -497,21 +577,16 @@ final class CredentialKey extends CredentialValue {
   const CredentialKey({
     required this.key,
     this.metadata,
-    this.configuration,
   });
 
   factory CredentialKey.fromJson(Map<String, Object?> json) => CredentialKey(
         key: decodeString(json, 'key'),
         metadata: json['metadata'] == null ? null : asJsonMap(json['metadata']),
-        configuration: json['configuration'] == null
-            ? null
-            : asJsonMap(json['configuration']),
       );
 
   final String key;
   @override
   final Map<String, Object?>? metadata;
-  final Map<String, Object?>? configuration;
 
   /// Always `key`.
   @override
@@ -522,7 +597,6 @@ final class CredentialKey extends CredentialValue {
         'type': 'key',
         'key': key,
         if (metadata != null) 'metadata': metadata!,
-        if (configuration != null) 'configuration': configuration!,
       };
 }
 
@@ -616,11 +690,15 @@ final class IntegrationAttemptEncoded {
   final IntegrationAttemptEncodedMode mode;
   final IntegrationAttemptEncodedTime time;
 
+  /// Always `true`.
+  bool get paste => true;
+
   Map<String, Object?> toJson() => <String, Object?>{
         'attemptID': attemptID,
         'url': url,
         'instructions': instructions,
         'mode': mode.wire,
+        'paste': true,
         'time': time.toJson(),
       };
 }
@@ -1145,6 +1223,7 @@ final class McpLocalConfigEncoded extends ExperimentalMcpAddInputConfig {
     this.codemode,
     this.timeout,
     this.protocol,
+    this.pool,
   });
 
   factory McpLocalConfigEncoded.fromJson(Map<String, Object?> json) =>
@@ -1161,6 +1240,7 @@ final class McpLocalConfigEncoded extends ExperimentalMcpAddInputConfig {
         protocol: json['protocol'] == null
             ? null
             : McpProtocol.fromJson(json['protocol']),
+        pool: decodeOptionalBool(json, 'pool'),
       );
 
   final List<String> command;
@@ -1173,6 +1253,8 @@ final class McpLocalConfigEncoded extends ExperimentalMcpAddInputConfig {
   final McpLocalConfigEncodedTimeout? timeout;
   @override
   final McpProtocol? protocol;
+  @override
+  final bool? pool;
 
   /// Always `local`.
   @override
@@ -1188,6 +1270,7 @@ final class McpLocalConfigEncoded extends ExperimentalMcpAddInputConfig {
         if (codemode != null) 'codemode': codemode!,
         if (timeout != null) 'timeout': timeout!.toJson(),
         if (protocol != null) 'protocol': protocol!.wire,
+        if (pool != null) 'pool': pool!,
       };
 }
 
@@ -1250,6 +1333,7 @@ final class McpRemoteConfigEncoded extends ExperimentalMcpAddInputConfig {
     this.codemode,
     this.timeout,
     this.protocol,
+    this.pool,
   });
 
   factory McpRemoteConfigEncoded.fromJson(Map<String, Object?> json) =>
@@ -1266,6 +1350,7 @@ final class McpRemoteConfigEncoded extends ExperimentalMcpAddInputConfig {
         protocol: json['protocol'] == null
             ? null
             : McpProtocol.fromJson(json['protocol']),
+        pool: decodeOptionalBool(json, 'pool'),
       );
 
   final String url;
@@ -1278,6 +1363,8 @@ final class McpRemoteConfigEncoded extends ExperimentalMcpAddInputConfig {
   final McpRemoteConfigEncodedTimeout? timeout;
   @override
   final McpProtocol? protocol;
+  @override
+  final bool? pool;
 
   /// Always `remote`.
   @override
@@ -1293,6 +1380,7 @@ final class McpRemoteConfigEncoded extends ExperimentalMcpAddInputConfig {
         if (codemode != null) 'codemode': codemode!,
         if (timeout != null) 'timeout': timeout!.toJson(),
         if (protocol != null) 'protocol': protocol!.wire,
+        if (pool != null) 'pool': pool!,
       };
 }
 
@@ -1393,12 +1481,14 @@ final class McpServer {
   const McpServer({
     required this.name,
     required this.status,
+    this.title,
     this.integrationID,
   });
 
   factory McpServer.fromJson(Map<String, Object?> json) => McpServer(
         name: decodeString(json, 'name'),
         status: McpServerStatus.fromJson(asJsonMap(json['status'])),
+        title: decodeOptionalString(json, 'title'),
         integrationID: json['integrationID'] == null
             ? null
             : IntegrationID.fromJson(asJsonString(json['integrationID'])),
@@ -1406,11 +1496,13 @@ final class McpServer {
 
   final String name;
   final McpServerStatus status;
+  final String? title;
   final IntegrationID? integrationID;
 
   Map<String, Object?> toJson() => <String, Object?>{
         'name': name,
         'status': status.toJson(),
+        if (title != null) 'title': title!,
         if (integrationID != null) 'integrationID': integrationID!,
       };
 }
@@ -1518,25 +1610,37 @@ final class McpStatusNeedsAuth extends McpServerStatus {
 final class ModelCapabilities {
   const ModelCapabilities({
     required this.tools,
+    this.freeform,
     required this.input,
     required this.output,
+    this.temperature,
   });
 
   factory ModelCapabilities.fromJson(Map<String, Object?> json) =>
       ModelCapabilities(
         tools: decodeBool(json, 'tools'),
+        freeform: json['freeform'] == null
+            ? null
+            : jsonList(
+                json['freeform'], (item) => ToolFreeformFormat.fromJson(item)),
         input: jsonList(json['input'], (item) => asJsonString(item)),
         output: jsonList(json['output'], (item) => asJsonString(item)),
+        temperature: decodeOptionalBool(json, 'temperature'),
       );
 
   final bool tools;
+  final List<ToolFreeformFormat>? freeform;
   final List<String> input;
   final List<String> output;
+  final bool? temperature;
 
   Map<String, Object?> toJson() => <String, Object?>{
         'tools': tools,
+        if (freeform != null)
+          'freeform': [for (final item in freeform!) item.wire],
         'input': input,
         'output': output,
+        if (temperature != null) 'temperature': temperature!,
       };
 }
 
@@ -1578,6 +1682,7 @@ final class ModelInfo {
     required this.modelID,
     required this.providerID,
     this.canonical,
+    this.type,
     this.family,
     required this.name,
     this.compatibility,
@@ -1601,6 +1706,7 @@ final class ModelInfo {
         canonical: json['canonical'] == null
             ? null
             : ProviderID.fromJson(asJsonString(json['canonical'])),
+        type: decodeOptionalString(json, 'type'),
         family: decodeOptionalString(json, 'family'),
         name: decodeString(json, 'name'),
         compatibility: json['compatibility'] == null
@@ -1628,6 +1734,7 @@ final class ModelInfo {
   final String modelID;
   final ProviderID providerID;
   final ProviderID? canonical;
+  final String? type;
   final String? family;
   final String name;
   final ModelCompatibility? compatibility;
@@ -1648,6 +1755,7 @@ final class ModelInfo {
         'modelID': modelID,
         'providerID': providerID,
         if (canonical != null) 'canonical': canonical!,
+        if (type != null) 'type': type!,
         if (family != null) 'family': family!,
         'name': name,
         if (compatibility != null) 'compatibility': compatibility!.toJson(),
@@ -1669,6 +1777,7 @@ final class ModelInfo {
 final class ModelSettings {
   const ModelSettings({
     this.compaction,
+    this.cache,
     this.encoding,
   });
 
@@ -1676,16 +1785,21 @@ final class ModelSettings {
         compaction: json['compaction'] == null
             ? null
             : ProviderCompaction.fromJson(asJsonMap(json['compaction'])),
+        cache: json['cache'] == null
+            ? null
+            : ProviderCache.fromJson(asJsonMap(json['cache'])),
         encoding: json['encoding'] == null
             ? null
             : ProviderEncoding.fromJson(json['encoding']),
       );
 
   final ProviderCompaction? compaction;
+  final ProviderCache? cache;
   final ProviderEncoding? encoding;
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (compaction != null) 'compaction': compaction!.toJson(),
+        if (cache != null) 'cache': cache!.toJson(),
         if (encoding != null) 'encoding': encoding!.wire,
       };
 }
@@ -1703,13 +1817,13 @@ final class ModelVariant {
         id: decodeString(json, 'id'),
         settings: json['settings'] == null
             ? null
-            : ModelSettings.fromJson(asJsonMap(json['settings'])),
+            : ModelVariantSettings.fromJson(asJsonMap(json['settings'])),
         headers: json['headers'] == null ? null : asJsonMap(json['headers']),
         body: json['body'] == null ? null : asJsonMap(json['body']),
       );
 
   final String id;
-  final ModelSettings? settings;
+  final ModelVariantSettings? settings;
   final Map<String, Object?>? headers;
   final Map<String, Object?>? body;
 
@@ -1718,6 +1832,32 @@ final class ModelVariant {
         if (settings != null) 'settings': settings!.toJson(),
         if (headers != null) 'headers': headers!,
         if (body != null) 'body': body!,
+      };
+}
+
+/// `Model.VariantSettings`
+final class ModelVariantSettings {
+  const ModelVariantSettings({
+    this.compaction,
+    this.encoding,
+  });
+
+  factory ModelVariantSettings.fromJson(Map<String, Object?> json) =>
+      ModelVariantSettings(
+        compaction: json['compaction'] == null
+            ? null
+            : ProviderCompaction.fromJson(asJsonMap(json['compaction'])),
+        encoding: json['encoding'] == null
+            ? null
+            : ProviderEncoding.fromJson(json['encoding']),
+      );
+
+  final ProviderCompaction? compaction;
+  final ProviderEncoding? encoding;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        if (compaction != null) 'compaction': compaction!.toJson(),
+        if (encoding != null) 'encoding': encoding!.wire,
       };
 }
 
@@ -1737,10 +1877,40 @@ final class PluginFeatures {
   /// Always `true`.
   bool get rpc => true;
 
+  /// Always `true`.
+  bool get gui => true;
+
   Map<String, Object?> toJson() => <String, Object?>{
         'server': true,
         'tui': true,
         'rpc': true,
+        'gui': true,
+      };
+}
+
+/// `Plugin.GuiBundle`
+final class PluginGuiBundle {
+  const PluginGuiBundle({
+    required this.code,
+    required this.revision,
+    required this.options,
+  });
+
+  factory PluginGuiBundle.fromJson(Map<String, Object?> json) =>
+      PluginGuiBundle(
+        code: decodeString(json, 'code'),
+        revision: decodeString(json, 'revision'),
+        options: asJsonMap(json['options']),
+      );
+
+  final String code;
+  final String revision;
+  final Map<String, Object?> options;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'code': code,
+        'revision': revision,
+        'options': options,
       };
 }
 
@@ -1754,13 +1924,15 @@ final class PluginInfo {
   });
 
   factory PluginInfo.fromJson(Map<String, Object?> json) => PluginInfo(
-        id: decodeOptionalString(json, 'id'),
+        id: json['id'] == null
+            ? null
+            : PluginID.fromJson(asJsonString(json['id'])),
         source: PluginSource.fromJson(asJsonMap(json['source'])),
         features: PluginFeatures.fromJson(asJsonMap(json['features'])),
         state: PluginState.fromJson(asJsonMap(json['state'])),
       );
 
-  final String? id;
+  final PluginID? id;
   final PluginSource source;
   final PluginFeatures features;
   final PluginState state;

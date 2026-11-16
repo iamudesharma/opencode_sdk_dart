@@ -463,7 +463,7 @@ final class Declaration {
   final String? bucket;
   final bool isError;
   bool emitted = false;
-  String? unionParentName;
+  final List<String> unionParentNames = <String>[];
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +507,34 @@ class _Generator {
     'Mcp.Resource': 'McpResourceInfo',
   };
 
+  /// Schemas that are represented by a hand-written core type instead of a
+  /// generated declaration. `Location.Ref` replaced `Location.PublicRef` and
+  /// shares the same wire shape as [LocationRef] in `core/request_options.dart`.
+  static const Set<String> _externalSchemas = {
+    'Location.PublicRef',
+    'Location.Ref',
+  };
+
+  /// Versioned aliases whose payload is structurally identical to the base
+  /// schema. The server exposes both during transitions; the SDK keeps one
+  /// Dart type so the two unions remain interchangeable.
+  static const Map<String, String> _schemaAliases = {
+    'Form.Answer_1': 'Form.Answer',
+    'Form.BooleanField_1': 'Form.BooleanField',
+    'Form.Field_1': 'Form.Field',
+    'Form.Fields_1': 'Form.Fields',
+    'Form.Info_1': 'Form.Info',
+    'Form.IntegerField_1': 'Form.IntegerField',
+    'Form.MultiselectField_1': 'Form.MultiselectField',
+    'Form.NumberField_1': 'Form.NumberField',
+    'Form.StringField_1': 'Form.StringField',
+    'Form.Value_1': 'Form.Value',
+    'Form.When_1': 'Form.When',
+    'Schedule.WhenInput': 'Schedule.When',
+    'Schedule.ConditionInput': 'Schedule.Condition',
+    'Session.Inbox.MovePayload_1': 'Session.Inbox.MovePayload',
+  };
+
   List<String> get _resourceTags {
     final tags = <String>[];
     for (final item in paths.values) {
@@ -539,6 +567,15 @@ class _Generator {
   // -------------------------------------------------------------------------
 
   Declaration _declare(String schemaName) {
+    final alias = _schemaAliases[schemaName];
+    if (alias != null) {
+      final declaration = _declare(alias);
+      _bySchema[schemaName] = declaration;
+      return declaration;
+    }
+    if (_externalSchemas.contains(schemaName)) {
+      throw StateError('External schema must not be declared: $schemaName');
+    }
     final existing = _bySchema[schemaName];
     if (existing != null) return existing;
     final raw = schemas[schemaName];
@@ -734,31 +771,86 @@ class _Generator {
       ];
 
   CType? _scalarUnion(List<Map<String, dynamic>> variants) {
-    var sawString = false;
-    var sawNumber = false;
-    var sawInt = false;
-    var sawBool = false;
+    String? kind;
     for (final variant in variants) {
-      if (variant.containsKey(r'$ref')) return null;
-      switch (variant['type']) {
-        case 'string':
-          sawString = true;
-        case 'integer':
-          sawInt = true;
-        case 'number':
-          sawNumber = true;
-        case 'boolean':
-          sawBool = true;
-        default:
+      final next = _scalarKind(variant);
+      if (next == null) return null;
+      if (kind == null) {
+        kind = next;
+      } else if (kind != next) {
+        if ((kind == 'integer' && next == 'number') ||
+            (kind == 'number' && next == 'integer')) {
+          kind = 'number';
+        } else {
           return null;
+        }
       }
     }
-    if (sawBool && !sawString && !sawNumber && !sawInt) return const CBool();
-    if (sawString && !sawNumber && !sawInt && !sawBool) return const CString();
-    if ((sawNumber || sawInt) && !sawString && !sawBool) {
-      return sawNumber ? const CDouble() : const CInt();
+    return switch (kind) {
+      'string' => const CString(),
+      'integer' => const CInt(),
+      'number' => const CDouble(),
+      'boolean' => const CBool(),
+      _ => null,
+    };
+  }
+
+  String? _scalarKind(Map<String, dynamic> schema) {
+    final ref = schema[r'$ref'];
+    if (ref is String) {
+      final target = schemas[ref.split('/').last];
+      return target is Map<String, dynamic> ? _scalarKind(target) : null;
     }
-    return const CDynamic();
+    final anyOf = schema['anyOf'];
+    if (anyOf is List) {
+      final nonNull = _nonNullVariants(anyOf);
+      String? kind;
+      for (final variant in nonNull) {
+        final next = _scalarKind(variant);
+        if (next == null) return null;
+        if (kind == null) {
+          kind = next;
+        } else if (kind != next) {
+          if ((kind == 'integer' && next == 'number') ||
+              (kind == 'number' && next == 'integer')) {
+            kind = 'number';
+          } else {
+            return null;
+          }
+        }
+      }
+      return kind;
+    }
+    return switch (schema['type']) {
+      'string' => 'string',
+      'integer' => 'integer',
+      'number' => 'number',
+      'boolean' => 'boolean',
+      _ => null,
+    };
+  }
+
+  CType? _listScalarUnion(
+    List<Map<String, dynamic>> variants,
+    String context,
+  ) {
+    if (variants.length != 2) return null;
+    Map<String, dynamic>? listSchema;
+    Map<String, dynamic>? scalarSchema;
+    for (final variant in variants) {
+      if (variant['type'] == 'array') {
+        listSchema ??= variant;
+      } else {
+        scalarSchema ??= variant;
+      }
+    }
+    if (listSchema == null || scalarSchema == null) return null;
+    final items = listSchema['items'];
+    if (items is! Map<String, dynamic>) return null;
+    final scalarKind = _scalarKind(scalarSchema);
+    final itemKind = _scalarKind(items);
+    if (scalarKind == null || scalarKind != itemKind) return null;
+    return CListType(_typeOf(items, context));
   }
 
   static bool _schemaNullable(Map<String, dynamic> schema) {
@@ -830,7 +922,11 @@ class _Generator {
       declaration.bucket,
     );
     for (final variant in declaration.variants!) {
-      _byDartName[variant.className]?.unionParentName = declaration.dartName;
+      final dartVariant = _byDartName[variant.className];
+      if (dartVariant != null &&
+          !dartVariant.unionParentNames.contains(declaration.dartName)) {
+        dartVariant.unionParentNames.add(declaration.dartName);
+      }
     }
   }
 
@@ -965,7 +1061,7 @@ class _Generator {
 
   CType _refType(String ref) {
     final name = ref.split('/').last;
-    if (name == 'Location.PublicRef') return const CLocationRef();
+    if (_externalSchemas.contains(name)) return const CLocationRef();
     return _typeOfDeclaration(_declare(name));
   }
 
@@ -1012,6 +1108,8 @@ class _Generator {
       if (nonNull.length == 1) return _typeOf(nonNull.single, context);
       final scalar = _scalarUnion(nonNull);
       if (scalar != null) return scalar;
+      final listScalar = _listScalarUnion(nonNull, context);
+      if (listScalar != null) return listScalar;
       if (!_allDiscriminated(nonNull)) return const CDynamic();
       return CUnion(_unionOfInline(nonNull, context).dartName);
     }
@@ -1092,7 +1190,11 @@ class _Generator {
     _queue.add(declaration);
     declaration.variants = _resolveVariants(variants, name, 'misc');
     for (final variant in declaration.variants!) {
-      _byDartName[variant.className]?.unionParentName = declaration.dartName;
+      final dartVariant = _byDartName[variant.className];
+      if (dartVariant != null &&
+          !dartVariant.unionParentNames.contains(declaration.dartName)) {
+        dartVariant.unionParentNames.add(declaration.dartName);
+      }
     }
     return declaration;
   }
@@ -1116,6 +1218,7 @@ class _Generator {
 
   void run() {
     for (final name in schemas.keys.toList()) {
+      if (_externalSchemas.contains(name)) continue;
       _declare(name);
     }
     // Build every resource tree and plan every operation before emitting
@@ -1276,11 +1379,15 @@ class _Generator {
     final className = declaration.dartName;
     final properties = declaration.properties ?? const <ObjectProperty>[];
     final isError = declaration.isError || declaration.bucket == 'errors';
-    final parent = declaration.unionParentName;
+    final parents = declaration.unionParentNames;
+    final parent = parents.isEmpty ? null : parents.first;
+    final extraParents = parents.skip(1).toList();
 
     sink.writeln('/// `${declaration.schemaName}`');
     if (parent != null) {
-      sink.writeln('final class $className extends $parent {');
+      final implementsClause =
+          extraParents.isEmpty ? '' : ' implements ${extraParents.join(', ')}';
+      sink.writeln('final class $className extends $parent$implementsClause {');
     } else if (isError) {
       sink.writeln('final class $className extends OpenCodeApiException {');
     } else {
@@ -1438,6 +1545,9 @@ class _Generator {
     final className = declaration.dartName;
     final variants = declaration.variants ?? const <UnionVariant>[];
     final discriminator = _pickDiscriminator(variants);
+    final parents = declaration.unionParentNames;
+    final parent = parents.isEmpty ? null : parents.first;
+    final extraParents = parents.skip(1).toList();
     if (discriminator == null) {
       throw StateError(
         'Union ${declaration.schemaName} has no unambiguous discriminator',
@@ -1446,9 +1556,10 @@ class _Generator {
     sink
       ..writeln('/// `${declaration.schemaName}`')
       ..writeln(
-        declaration.unionParentName == null
+        parent == null
             ? 'sealed class $className {'
-            : 'sealed class $className extends ${declaration.unionParentName} {',
+            : 'sealed class $className extends $parent'
+                '${extraParents.isEmpty ? '' : ' implements ${extraParents.join(', ')}'} {',
       )
       ..writeln('  const $className();')
       ..writeln()
@@ -1473,12 +1584,14 @@ class _Generator {
       ..writeln('  }')
       ..writeln();
     // Shared members: properties present on every variant with the same type.
-    final parentUnion = declaration.unionParentName == null
-        ? null
-        : _byDartName[declaration.unionParentName!];
-    final parentCommon = parentUnion == null
-        ? const <String, ObjectProperty>{}
-        : _commonProperties(parentUnion.variants ?? const <UnionVariant>[]);
+    final parentCommon = <String, ObjectProperty>{};
+    for (final parentName in parents) {
+      final parentUnion = _byDartName[parentName];
+      if (parentUnion == null) continue;
+      parentCommon.addAll(
+        _commonProperties(parentUnion.variants ?? const <UnionVariant>[]),
+      );
+    }
     for (final entry in _commonProperties(variants).entries) {
       final property = entry.value;
       final type =
@@ -1492,7 +1605,7 @@ class _Generator {
         ..writeln();
     }
     sink.writeln('  /// Encodes this value to JSON.');
-    if (declaration.unionParentName != null) {
+    if (parents.isNotEmpty) {
       sink.writeln('  @override');
     }
     sink
@@ -1820,7 +1933,7 @@ class _Generator {
       ..writeln(
         '// ignore_for_file: unnecessary_lambdas, unused_import, '
         'prefer_if_null_operators, prefer_single_quotes, '
-        'use_super_parameters',
+        'unnecessary_this, use_super_parameters',
       )
       ..writeln()
       ..writeln('library;')
@@ -1960,6 +2073,11 @@ class _Generator {
             hasLocation = true;
             continue;
           }
+          if (operation.operationId == 'event.subscribe' && name == 'types') {
+            // Filtered locally because all subscribers share one upstream
+            // connection; the server-side filter cannot vary per subscriber.
+            continue;
+          }
           final anyOf = schema['anyOf'];
           final effective = anyOf is List && _nonNullVariants(anyOf).length == 1
               ? _nonNullVariants(anyOf).single
@@ -2026,6 +2144,9 @@ class _Generator {
       for (final entry in body.rawArguments.entries) {
         addArgument(entry.key, entry.value);
       }
+    }
+    if (operation.operationId == 'event.subscribe') {
+      addArgument('types', 'Iterable<String>? types');
     }
     addArgument('options', 'RequestOptions? options');
 
@@ -2249,13 +2370,15 @@ class _Generator {
         : '<String, String>{\n${_indent(headerEntries.join(',\n'), 6)}\n    }';
 
     if (response.kind == _ResponseKind.sseEvents && needsEvents) {
-      buffer.writeln('return events.subscribe();');
+      buffer.writeln(
+        'return this.events.subscribe(filter: eventTypeFilter(types));',
+      );
       return buffer.toString();
     }
 
     if (response.kind == _ResponseKind.sseJson) {
       buffer
-        ..writeln('final frames = transport.sseFrames(')
+        ..writeln('final frames = this.transport.sseFrames(')
         ..writeln('  path: $pathExpression,')
         ..writeln('  query: $queryText,')
         ..writeln(
@@ -2290,8 +2413,8 @@ class _Generator {
     ];
 
     final transportCall = response.kind == _ResponseKind.binary
-        ? 'transport.bytesRequest'
-        : 'transport.jsonRequest';
+        ? 'this.transport.bytesRequest'
+        : 'this.transport.jsonRequest';
     if (response.kind == _ResponseKind.empty) {
       buffer
         ..writeln('await $transportCall(')
@@ -2393,7 +2516,7 @@ class _Generator {
       ..writeln(
         '// ignore_for_file: unnecessary_lambdas, unused_import, '
         'prefer_if_null_operators, prefer_single_quotes, '
-        'use_super_parameters',
+        'unnecessary_this, use_super_parameters',
       )
       ..writeln()
       ..writeln('/// The assembled OpenCode client.')

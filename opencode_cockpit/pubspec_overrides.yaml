@@ -1,0 +1,7 @@
+# Local development only: use the sibling packages from this checkout.
+# This app is private and never published.
+dependency_overrides:
+  opencode_effect:
+    path: ../opencode_effect
+  opencode_sdk_dart:
+    path: ../

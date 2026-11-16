@@ -99,6 +99,33 @@ enum PermissionEffect {
       };
 }
 
+/// `Artifact.Capability`
+enum ArtifactCapability {
+  staticValue('static'),
+  serverCode('server-code'),
+  sqlite('sqlite'),
+  durableObjects('durable-objects');
+
+  const ArtifactCapability(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ArtifactCapability fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ArtifactCapability fromWire(String value) => switch (value) {
+        'static' => staticValue,
+        'server-code' => serverCode,
+        'sqlite' => sqlite,
+        'durable-objects' => durableObjects,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ArtifactCapability value: $value'),
+      };
+}
+
 /// `ConfigAgentEncodedMode`
 enum ConfigAgentEncodedMode {
   subagent('subagent'),
@@ -178,7 +205,12 @@ enum ConfigInfoEncodedShare {
 enum ConfigInfoEncodedPoliciesAction {
   providerUse('provider.use'),
   toolUse('tool.use'),
-  integrationUse('integration.use');
+  integrationConnect('integration.connect'),
+  integrationUse('integration.use'),
+  mcpUse('mcp.use'),
+  skillUse('skill.use'),
+  pluginUse('plugin.use'),
+  websearchUse('websearch.use');
 
   const ConfigInfoEncodedPoliciesAction(this.wire);
 
@@ -194,7 +226,12 @@ enum ConfigInfoEncodedPoliciesAction {
       switch (value) {
         'provider.use' => providerUse,
         'tool.use' => toolUse,
+        'integration.connect' => integrationConnect,
         'integration.use' => integrationUse,
+        'mcp.use' => mcpUse,
+        'skill.use' => skillUse,
+        'plugin.use' => pluginUse,
+        'websearch.use' => websearchUse,
         _ => throw OpenCodeDecodeException(
             'Unknown ConfigInfoEncodedPoliciesAction value: $value'),
       };
@@ -228,7 +265,12 @@ enum ConfigInfoEncodedPoliciesEffect {
 enum ConfigInfoEncodedExperimentalPoliciesAction {
   providerUse('provider.use'),
   toolUse('tool.use'),
-  integrationUse('integration.use');
+  integrationConnect('integration.connect'),
+  integrationUse('integration.use'),
+  mcpUse('mcp.use'),
+  skillUse('skill.use'),
+  pluginUse('plugin.use'),
+  websearchUse('websearch.use');
 
   const ConfigInfoEncodedExperimentalPoliciesAction(this.wire);
 
@@ -244,7 +286,12 @@ enum ConfigInfoEncodedExperimentalPoliciesAction {
       switch (value) {
         'provider.use' => providerUse,
         'tool.use' => toolUse,
+        'integration.connect' => integrationConnect,
         'integration.use' => integrationUse,
+        'mcp.use' => mcpUse,
+        'skill.use' => skillUse,
+        'plugin.use' => pluginUse,
+        'websearch.use' => websearchUse,
         _ => throw OpenCodeDecodeException(
             'Unknown ConfigInfoEncodedExperimentalPoliciesAction value: $value'),
       };
@@ -271,6 +318,31 @@ enum ConfigInfoEncodedExperimentalPoliciesEffect {
         'deny' => deny,
         _ => throw OpenCodeDecodeException(
             'Unknown ConfigInfoEncodedExperimentalPoliciesEffect value: $value'),
+      };
+}
+
+/// `Tool.FreeformFormat`
+enum ToolFreeformFormat {
+  text('text'),
+  regex('regex'),
+  lark('lark');
+
+  const ToolFreeformFormat(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ToolFreeformFormat fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ToolFreeformFormat fromWire(String value) => switch (value) {
+        'text' => text,
+        'regex' => regex,
+        'lark' => lark,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ToolFreeformFormat value: $value'),
       };
 }
 
@@ -317,6 +389,31 @@ enum ModelCacheFormat {
         'alibaba' => alibaba,
         _ => throw OpenCodeDecodeException(
             'Unknown ModelCacheFormat value: $value'),
+      };
+}
+
+/// `Model.MediaInput`
+enum ModelMediaInput {
+  assets('assets'),
+  state('state'),
+  root('root');
+
+  const ModelMediaInput(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ModelMediaInput fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ModelMediaInput fromWire(String value) => switch (value) {
+        'assets' => assets,
+        'state' => state,
+        'root' => root,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ModelMediaInput value: $value'),
       };
 }
 
@@ -466,6 +563,54 @@ enum IntegrationAttemptEncodedMode {
       };
 }
 
+/// `Job.Status`
+enum JobStatus {
+  running('running'),
+  completed('completed'),
+  error('error'),
+  cancelled('cancelled');
+
+  const JobStatus(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static JobStatus fromJson(Object? value) => fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static JobStatus fromWire(String value) => switch (value) {
+        'running' => running,
+        'completed' => completed,
+        'error' => error,
+        'cancelled' => cancelled,
+        _ => throw OpenCodeDecodeException('Unknown JobStatus value: $value'),
+      };
+}
+
+/// `Job.Kind`
+enum JobKind {
+  shell('shell'),
+  subagent('subagent'),
+  image('image');
+
+  const JobKind(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static JobKind fromJson(Object? value) => fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static JobKind fromWire(String value) => switch (value) {
+        'shell' => shell,
+        'subagent' => subagent,
+        'image' => image,
+        _ => throw OpenCodeDecodeException('Unknown JobKind value: $value'),
+      };
+}
+
 /// `Mcp.Protocol`
 enum McpProtocol {
   legacy('legacy'),
@@ -589,6 +734,37 @@ enum ProviderInfoActivation {
       };
 }
 
+/// `ProviderRequestErrorReason`
+enum ProviderRequestErrorReason {
+  authentication('authentication'),
+  rateLimit('rate_limit'),
+  contentFilter('content_filter'),
+  invalidRequest('invalid_request'),
+  overloaded('overloaded'),
+  provider('provider');
+
+  const ProviderRequestErrorReason(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ProviderRequestErrorReason fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ProviderRequestErrorReason fromWire(String value) => switch (value) {
+        'authentication' => authentication,
+        'rate_limit' => rateLimit,
+        'content_filter' => contentFilter,
+        'invalid_request' => invalidRequest,
+        'overloaded' => overloaded,
+        'provider' => provider,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ProviderRequestErrorReason value: $value'),
+      };
+}
+
 /// `PtyStatus`
 enum PtyStatus {
   running('running'),
@@ -633,6 +809,64 @@ enum RpcInternalErrorType {
       };
 }
 
+/// `Schedule.Status`
+enum ScheduleStatus {
+  active('active'),
+  paused('paused'),
+  done('done');
+
+  const ScheduleStatus(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ScheduleStatus fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ScheduleStatus fromWire(String value) => switch (value) {
+        'active' => active,
+        'paused' => paused,
+        'done' => done,
+        _ =>
+          throw OpenCodeDecodeException('Unknown ScheduleStatus value: $value'),
+      };
+}
+
+/// `Schedule.Outcome`
+enum ScheduleOutcome {
+  fired('fired'),
+  lateValue('late'),
+  checked('checked'),
+  expired('expired'),
+  skipped('skipped'),
+  disabled('disabled'),
+  failed('failed');
+
+  const ScheduleOutcome(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ScheduleOutcome fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ScheduleOutcome fromWire(String value) => switch (value) {
+        'fired' => fired,
+        'late' => lateValue,
+        'checked' => checked,
+        'expired' => expired,
+        'skipped' => skipped,
+        'disabled' => disabled,
+        'failed' => failed,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ScheduleOutcome value: $value'),
+      };
+}
+
 /// `Session.Inbox.Delivery`
 enum SessionInboxDelivery {
   steer('steer'),
@@ -653,6 +887,190 @@ enum SessionInboxDelivery {
         'queue' => queue,
         _ => throw OpenCodeDecodeException(
             'Unknown SessionInboxDelivery value: $value'),
+      };
+}
+
+/// `SessionExecutionInterruptedDataReason`
+enum SessionExecutionInterruptedDataReason {
+  user('user'),
+  shutdown('shutdown'),
+  superseded('superseded'),
+  inactivity('inactivity');
+
+  const SessionExecutionInterruptedDataReason(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static SessionExecutionInterruptedDataReason fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static SessionExecutionInterruptedDataReason fromWire(String value) =>
+      switch (value) {
+        'user' => user,
+        'shutdown' => shutdown,
+        'superseded' => superseded,
+        'inactivity' => inactivity,
+        _ => throw OpenCodeDecodeException(
+            'Unknown SessionExecutionInterruptedDataReason value: $value'),
+      };
+}
+
+/// `ShellInfoStatus`
+enum ShellInfoStatus {
+  running('running'),
+  exited('exited'),
+  timeout('timeout'),
+  killed('killed');
+
+  const ShellInfoStatus(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ShellInfoStatus fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ShellInfoStatus fromWire(String value) => switch (value) {
+        'running' => running,
+        'exited' => exited,
+        'timeout' => timeout,
+        'killed' => killed,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ShellInfoStatus value: $value'),
+      };
+}
+
+/// `SessionStepEndedDataFinish`
+enum SessionStepEndedDataFinish {
+  stop('stop'),
+  length('length'),
+  toolCalls('tool-calls'),
+  contentFilter('content-filter'),
+  error('error'),
+  unknown('unknown');
+
+  const SessionStepEndedDataFinish(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static SessionStepEndedDataFinish fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static SessionStepEndedDataFinish fromWire(String value) => switch (value) {
+        'stop' => stop,
+        'length' => length,
+        'tool-calls' => toolCalls,
+        'content-filter' => contentFilter,
+        'error' => error,
+        'unknown' => unknown,
+        _ => throw OpenCodeDecodeException(
+            'Unknown SessionStepEndedDataFinish value: $value'),
+      };
+}
+
+/// `SessionCompactionStartedDataReason`
+enum SessionCompactionStartedDataReason {
+  auto('auto'),
+  manual('manual');
+
+  const SessionCompactionStartedDataReason(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static SessionCompactionStartedDataReason fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static SessionCompactionStartedDataReason fromWire(String value) =>
+      switch (value) {
+        'auto' => auto,
+        'manual' => manual,
+        _ => throw OpenCodeDecodeException(
+            'Unknown SessionCompactionStartedDataReason value: $value'),
+      };
+}
+
+/// `SessionCompactionEndedDataReason`
+enum SessionCompactionEndedDataReason {
+  auto('auto'),
+  manual('manual');
+
+  const SessionCompactionEndedDataReason(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static SessionCompactionEndedDataReason fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static SessionCompactionEndedDataReason fromWire(String value) =>
+      switch (value) {
+        'auto' => auto,
+        'manual' => manual,
+        _ => throw OpenCodeDecodeException(
+            'Unknown SessionCompactionEndedDataReason value: $value'),
+      };
+}
+
+/// `SessionCompactionFailedDataReason`
+enum SessionCompactionFailedDataReason {
+  auto('auto'),
+  manual('manual');
+
+  const SessionCompactionFailedDataReason(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static SessionCompactionFailedDataReason fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static SessionCompactionFailedDataReason fromWire(String value) =>
+      switch (value) {
+        'auto' => auto,
+        'manual' => manual,
+        _ => throw OpenCodeDecodeException(
+            'Unknown SessionCompactionFailedDataReason value: $value'),
+      };
+}
+
+/// `SessionUsageRecordedDataSource`
+enum SessionUsageRecordedDataSource {
+  title('title'),
+  compaction('compaction'),
+  generate('generate');
+
+  const SessionUsageRecordedDataSource(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static SessionUsageRecordedDataSource fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static SessionUsageRecordedDataSource fromWire(String value) =>
+      switch (value) {
+        'title' => title,
+        'compaction' => compaction,
+        'generate' => generate,
+        _ => throw OpenCodeDecodeException(
+            'Unknown SessionUsageRecordedDataSource value: $value'),
       };
 }
 
@@ -837,30 +1255,72 @@ enum SessionMessageShellStatus {
       };
 }
 
-/// `ShellInfoStatus`
-enum ShellInfoStatus {
-  running('running'),
-  exited('exited'),
-  timeout('timeout'),
-  killed('killed');
+/// `UsageLimitsBudgetScope`
+enum UsageLimitsBudgetScope {
+  each('each'),
+  combined('combined');
 
-  const ShellInfoStatus(this.wire);
+  const UsageLimitsBudgetScope(this.wire);
 
   /// The wire value.
   final String wire;
 
   /// Decodes a wire value into an enum member.
-  static ShellInfoStatus fromJson(Object? value) =>
+  static UsageLimitsBudgetScope fromJson(Object? value) =>
       fromWire(asJsonString(value));
 
   /// Decodes a wire value into an enum member.
-  static ShellInfoStatus fromWire(String value) => switch (value) {
-        'running' => running,
-        'exited' => exited,
-        'timeout' => timeout,
-        'killed' => killed,
+  static UsageLimitsBudgetScope fromWire(String value) => switch (value) {
+        'each' => each,
+        'combined' => combined,
         _ => throw OpenCodeDecodeException(
-            'Unknown ShellInfoStatus value: $value'),
+            'Unknown UsageLimitsBudgetScope value: $value'),
+      };
+}
+
+/// `UsageLimitsBudgetPer`
+enum UsageLimitsBudgetPer {
+  set('set'),
+  model('model');
+
+  const UsageLimitsBudgetPer(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static UsageLimitsBudgetPer fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static UsageLimitsBudgetPer fromWire(String value) => switch (value) {
+        'set' => set,
+        'model' => model,
+        _ => throw OpenCodeDecodeException(
+            'Unknown UsageLimitsBudgetPer value: $value'),
+      };
+}
+
+/// `UsageLimitsBudgetCoverage`
+enum UsageLimitsBudgetCoverage {
+  all('all'),
+  models('models');
+
+  const UsageLimitsBudgetCoverage(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static UsageLimitsBudgetCoverage fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static UsageLimitsBudgetCoverage fromWire(String value) => switch (value) {
+        'all' => all,
+        'models' => models,
+        _ => throw OpenCodeDecodeException(
+            'Unknown UsageLimitsBudgetCoverage value: $value'),
       };
 }
 
@@ -934,6 +1394,154 @@ enum VcsMode {
       };
 }
 
+/// `Vcs.Untracked`
+enum VcsUntracked {
+  files('files'),
+  folders('folders');
+
+  const VcsUntracked(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static VcsUntracked fromJson(Object? value) => fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static VcsUntracked fromWire(String value) => switch (value) {
+        'files' => files,
+        'folders' => folders,
+        _ =>
+          throw OpenCodeDecodeException('Unknown VcsUntracked value: $value'),
+      };
+}
+
+/// `VoiceTransportType`
+enum VoiceTransportType {
+  webrtc('webrtc'),
+  websocket('websocket');
+
+  const VoiceTransportType(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static VoiceTransportType fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static VoiceTransportType fromWire(String value) => switch (value) {
+        'webrtc' => webrtc,
+        'websocket' => websocket,
+        _ => throw OpenCodeDecodeException(
+            'Unknown VoiceTransportType value: $value'),
+      };
+}
+
+/// `FilesystemChangedDataEvent`
+enum FilesystemChangedDataEvent {
+  add('add'),
+  change('change'),
+  unlink('unlink');
+
+  const FilesystemChangedDataEvent(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static FilesystemChangedDataEvent fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static FilesystemChangedDataEvent fromWire(String value) => switch (value) {
+        'add' => add,
+        'change' => change,
+        'unlink' => unlink,
+        _ => throw OpenCodeDecodeException(
+            'Unknown FilesystemChangedDataEvent value: $value'),
+      };
+}
+
+/// `ShellExitedDataStatus`
+enum ShellExitedDataStatus {
+  running('running'),
+  exited('exited'),
+  timeout('timeout'),
+  killed('killed');
+
+  const ShellExitedDataStatus(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ShellExitedDataStatus fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ShellExitedDataStatus fromWire(String value) => switch (value) {
+        'running' => running,
+        'exited' => exited,
+        'timeout' => timeout,
+        'killed' => killed,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ShellExitedDataStatus value: $value'),
+      };
+}
+
+/// `TuiToastShowDataVariant`
+enum TuiToastShowDataVariant {
+  info('info'),
+  success('success'),
+  warning('warning'),
+  error('error');
+
+  const TuiToastShowDataVariant(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static TuiToastShowDataVariant fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static TuiToastShowDataVariant fromWire(String value) => switch (value) {
+        'info' => info,
+        'success' => success,
+        'warning' => warning,
+        'error' => error,
+        _ => throw OpenCodeDecodeException(
+            'Unknown TuiToastShowDataVariant value: $value'),
+      };
+}
+
+/// `ExperimentalJobListDescendants`
+enum ExperimentalJobListDescendants {
+  trueValue('true'),
+  falseValue('false');
+
+  const ExperimentalJobListDescendants(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static ExperimentalJobListDescendants fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static ExperimentalJobListDescendants fromWire(String value) =>
+      switch (value) {
+        'true' => trueValue,
+        'false' => falseValue,
+        _ => throw OpenCodeDecodeException(
+            'Unknown ExperimentalJobListDescendants value: $value'),
+      };
+}
+
 /// `FsFindType`
 enum FsFindType {
   file('file'),
@@ -1001,6 +1609,29 @@ enum SessionListOrder {
       };
 }
 
+/// `SessionListArchived`
+enum SessionListArchived {
+  trueValue('true'),
+  falseValue('false');
+
+  const SessionListArchived(this.wire);
+
+  /// The wire value.
+  final String wire;
+
+  /// Decodes a wire value into an enum member.
+  static SessionListArchived fromJson(Object? value) =>
+      fromWire(asJsonString(value));
+
+  /// Decodes a wire value into an enum member.
+  static SessionListArchived fromWire(String value) => switch (value) {
+        'true' => trueValue,
+        'false' => falseValue,
+        _ => throw OpenCodeDecodeException(
+            'Unknown SessionListArchived value: $value'),
+      };
+}
+
 /// `ExperimentalSessionStatsTools`
 enum ExperimentalSessionStatsTools {
   none('none'),
@@ -1051,26 +1682,26 @@ enum ExperimentalSessionExportSanitize {
       };
 }
 
-/// `SessionLogFollow`
-enum SessionLogFollow {
+/// `ExperimentalSessionLogFollow`
+enum ExperimentalSessionLogFollow {
   trueValue('true'),
   falseValue('false');
 
-  const SessionLogFollow(this.wire);
+  const ExperimentalSessionLogFollow(this.wire);
 
   /// The wire value.
   final String wire;
 
   /// Decodes a wire value into an enum member.
-  static SessionLogFollow fromJson(Object? value) =>
+  static ExperimentalSessionLogFollow fromJson(Object? value) =>
       fromWire(asJsonString(value));
 
   /// Decodes a wire value into an enum member.
-  static SessionLogFollow fromWire(String value) => switch (value) {
+  static ExperimentalSessionLogFollow fromWire(String value) => switch (value) {
         'true' => trueValue,
         'false' => falseValue,
         _ => throw OpenCodeDecodeException(
-            'Unknown SessionLogFollow value: $value'),
+            'Unknown ExperimentalSessionLogFollow value: $value'),
       };
 }
 
@@ -1131,7 +1762,8 @@ enum SessionMessageListType {
   skill('skill'),
   shell('shell'),
   assistant('assistant'),
-  compaction('compaction');
+  compaction('compaction'),
+  idle('idle');
 
   const SessionMessageListType(this.wire);
 
@@ -1154,6 +1786,7 @@ enum SessionMessageListType {
         'shell' => shell,
         'assistant' => assistant,
         'compaction' => compaction,
+        'idle' => idle,
         _ => throw OpenCodeDecodeException(
             'Unknown SessionMessageListType value: $value'),
       };

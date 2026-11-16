@@ -27,6 +27,39 @@ extension type const ProviderID(String value) implements String {
   static ProviderID fromJson(Object? json) => ProviderID(asJsonString(json));
 }
 
+/// `Provider.CacheTTL`
+extension type const ProviderCacheTTL(String value) implements String {
+  /// Decodes this value.
+  static ProviderCacheTTL fromJson(Object? json) =>
+      ProviderCacheTTL(asJsonString(json));
+}
+
+/// `Artifact.ID`
+extension type const ArtifactID(String value) implements String {
+  /// Decodes this value.
+  static ArtifactID fromJson(Object? json) => ArtifactID(asJsonString(json));
+}
+
+/// `Artifact.ProviderIDEncoded`
+extension type const ArtifactProviderIDEncoded(String value) implements String {
+  /// Decodes this value.
+  static ArtifactProviderIDEncoded fromJson(Object? json) =>
+      ArtifactProviderIDEncoded(asJsonString(json));
+}
+
+/// `Session.ID`
+extension type const SessionID(String value) implements String {
+  /// Decodes this value.
+  static SessionID fromJson(Object? json) => SessionID(asJsonString(json));
+}
+
+/// `Config.Compaction.Percent`
+extension type const ConfigCompactionPercent(String value) implements String {
+  /// Decodes this value.
+  static ConfigCompactionPercent fromJson(Object? json) =>
+      ConfigCompactionPercent(asJsonString(json));
+}
+
 /// `Money.USDPerMillionTokens`
 extension type const MoneyUSDPerMillionTokens(double value) implements double {
   /// Decodes this value.
@@ -55,11 +88,32 @@ extension type const IntegrationMethodID(String value) implements String {
       IntegrationMethodID(asJsonString(json));
 }
 
-/// `Event.SeqEncoded`
-extension type const EventSeqEncoded(String value) implements String {
+/// `Event.ID`
+extension type const EventID(String value) implements String {
   /// Decodes this value.
-  static EventSeqEncoded fromJson(Object? json) =>
-      EventSeqEncoded(asJsonString(json));
+  static EventID fromJson(Object? json) => EventID(asJsonString(json));
+}
+
+/// `Event.Seq`
+extension type const EventSeq(int value) implements int {
+  /// Decodes this value.
+  static EventSeq fromJson(Object? json) => EventSeq(asJsonInt(json));
+}
+
+/// `Event.VersionEncoded_c3ea984aceae`
+extension type const EventVersionEncodedC3ea984aceae(double value)
+    implements double {
+  /// Decodes this value.
+  static EventVersionEncodedC3ea984aceae fromJson(Object? json) =>
+      EventVersionEncodedC3ea984aceae(asJsonDouble(json));
+}
+
+/// `Event.VersionEncoded_c77c5abcb68d`
+extension type const EventVersionEncodedC77c5abcb68d(double value)
+    implements double {
+  /// Decodes this value.
+  static EventVersionEncodedC77c5abcb68d fromJson(Object? json) =>
+      EventVersionEncodedC77c5abcb68d(asJsonDouble(json));
 }
 
 /// `RelativePath`
@@ -73,6 +127,40 @@ extension type const RelativePath(String value) implements String {
 extension type const FormID(String value) implements String {
   /// Decodes this value.
   static FormID fromJson(Object? json) => FormID(asJsonString(json));
+}
+
+/// `Prompt.Base64`
+extension type const PromptBase64(String value) implements String {
+  /// Decodes this value.
+  static PromptBase64 fromJson(Object? json) =>
+      PromptBase64(asJsonString(json));
+}
+
+/// `Money.USD`
+extension type const MoneyUSD(double value) implements double {
+  /// Decodes this value.
+  static MoneyUSD fromJson(Object? json) => MoneyUSD(asJsonDouble(json));
+}
+
+/// `Generate.ImageAspect`
+extension type const GenerateImageAspect(String value) implements String {
+  /// Decodes this value.
+  static GenerateImageAspect fromJson(Object? json) =>
+      GenerateImageAspect(asJsonString(json));
+}
+
+/// `Instruction.Hash`
+extension type const InstructionHash(String value) implements String {
+  /// Decodes this value.
+  static InstructionHash fromJson(Object? json) =>
+      InstructionHash(asJsonString(json));
+}
+
+/// `Instruction.Key`
+extension type const InstructionKey(String value) implements String {
+  /// Decodes this value.
+  static InstructionKey fromJson(Object? json) =>
+      InstructionKey(asJsonString(json));
 }
 
 /// `InstructionEntry.Key`
@@ -95,10 +183,10 @@ extension type const ProjectID(String value) implements String {
   static ProjectID fromJson(Object? json) => ProjectID(asJsonString(json));
 }
 
-/// `Money.USD`
-extension type const MoneyUSD(double value) implements double {
+/// `MediaHash`
+extension type const MediaHash(String value) implements String {
   /// Decodes this value.
-  static MoneyUSD fromJson(Object? json) => MoneyUSD(asJsonDouble(json));
+  static MediaHash fromJson(Object? json) => MediaHash(asJsonString(json));
 }
 
 /// `Permission.ID`
@@ -106,12 +194,6 @@ extension type const PermissionID(String value) implements String {
   /// Decodes this value.
   static PermissionID fromJson(Object? json) =>
       PermissionID(asJsonString(json));
-}
-
-/// `Session.ID`
-extension type const SessionID(String value) implements String {
-  /// Decodes this value.
-  static SessionID fromJson(Object? json) => SessionID(asJsonString(json));
 }
 
 /// `PermissionSaved.ID`
@@ -127,25 +209,16 @@ extension type const PtyID(String value) implements String {
   static PtyID fromJson(Object? json) => PtyID(asJsonString(json));
 }
 
-/// `PersistentPty.ReadLinesEncoded`
-extension type const PersistentPtyReadLinesEncoded(String value)
-    implements String {
+/// `Plugin.ID`
+extension type const PluginID(String value) implements String {
   /// Decodes this value.
-  static PersistentPtyReadLinesEncoded fromJson(Object? json) =>
-      PersistentPtyReadLinesEncoded(asJsonString(json));
+  static PluginID fromJson(Object? json) => PluginID(asJsonString(json));
 }
 
 /// `Project.Vcs`
 extension type const ProjectVcs(String value) implements String {
   /// Decodes this value.
   static ProjectVcs fromJson(Object? json) => ProjectVcs(asJsonString(json));
-}
-
-/// `Prompt.Base64`
-extension type const PromptBase64(String value) implements String {
-  /// Decodes this value.
-  static PromptBase64 fromJson(Object? json) =>
-      PromptBase64(asJsonString(json));
 }
 
 /// `Skill.ID`
@@ -160,6 +233,19 @@ extension type const SkillName(String value) implements String {
   static SkillName fromJson(Object? json) => SkillName(asJsonString(json));
 }
 
+/// `Schedule.Duration`
+extension type const ScheduleDuration(String value) implements String {
+  /// Decodes this value.
+  static ScheduleDuration fromJson(Object? json) =>
+      ScheduleDuration(asJsonString(json));
+}
+
+/// `Schedule.ID`
+extension type const ScheduleID(String value) implements String {
+  /// Decodes this value.
+  static ScheduleID fromJson(Object? json) => ScheduleID(asJsonString(json));
+}
+
 /// `Session.Message.ID`
 extension type const SessionMessageID(String value) implements String {
   /// Decodes this value.
@@ -167,16 +253,16 @@ extension type const SessionMessageID(String value) implements String {
       SessionMessageID(asJsonString(json));
 }
 
-/// `Snapshot.ID`
-extension type const SnapshotID(String value) implements String {
-  /// Decodes this value.
-  static SnapshotID fromJson(Object? json) => SnapshotID(asJsonString(json));
-}
-
 /// `Shell.ID`
 extension type const ShellID(String value) implements String {
   /// Decodes this value.
   static ShellID fromJson(Object? json) => ShellID(asJsonString(json));
+}
+
+/// `Snapshot.ID`
+extension type const SnapshotID(String value) implements String {
+  /// Decodes this value.
+  static SnapshotID fromJson(Object? json) => SnapshotID(asJsonString(json));
 }
 
 /// `SessionLogItemEncoded`
@@ -204,4 +290,10 @@ extension type const V2EventEncoded(String value) implements String {
 extension type const WebSearchID(String value) implements String {
   /// Decodes this value.
   static WebSearchID fromJson(Object? json) => WebSearchID(asJsonString(json));
+}
+
+/// `Workspace.ID`
+extension type const WorkspaceID(String value) implements String {
+  /// Decodes this value.
+  static WorkspaceID fromJson(Object? json) => WorkspaceID(asJsonString(json));
 }

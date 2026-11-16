@@ -76,6 +76,34 @@ final class OpenCodeEvent {
   String toString() => 'OpenCodeEvent($type)';
 }
 
+/// Builds a per-subscriber filter from event type patterns.
+///
+/// Exact types match directly. Suffix wildcards match a prefix, so
+/// `rpc.*` accepts every plugin RPC event and `session.*` accepts every
+/// session event. The initial `server.connected` marker is always delivered.
+/// Passing `null` or a wildcard-only list accepts every event.
+bool Function(OpenCodeEvent event)? eventTypeFilter(Iterable<String>? types) {
+  if (types == null) return null;
+  final exact = <String>{};
+  final prefixes = <String>[];
+  for (final type in types) {
+    if (type == '*') return null;
+    if (type.endsWith('*')) {
+      prefixes.add(type.substring(0, type.length - 1));
+    } else {
+      exact.add(type);
+    }
+  }
+  if (exact.isEmpty && prefixes.isEmpty) {
+    return (event) => event.isServerConnected;
+  }
+  return (event) {
+    if (event.isServerConnected) return true;
+    if (exact.contains(event.type)) return true;
+    return prefixes.any(event.type.startsWith);
+  };
+}
+
 /// Opens a raw event source. The multiplexer calls this at most once per
 /// active connection and cancels [token] to close it.
 typedef EventSource = Stream<OpenCodeEvent> Function(

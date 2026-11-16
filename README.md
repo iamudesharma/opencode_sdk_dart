@@ -9,14 +9,16 @@ envelope unwrapping, error decoding, shared event connection, plugin RPC
 behavior, PTY WebSocket handshake, and background service discovery.
 
 A ready-made macOS client built on this SDK lives in
-[`chat_app/`](chat_app/README.md): streaming transcripts, tool cards, session
-management, agent/model switching, and permission prompts. The larger
-[`opencode_cockpit/`](opencode_cockpit/README.md) workbench adds project tabs,
-a session tree, files and git panels, session diffs, worktree management, a
-statistics dashboard, and real PTY terminals.
+[`chat_app/`](https://github.com/iamudesharma/opencode_sdk_dart/tree/main/chat_app):
+streaming transcripts, tool cards, session management, agent/model switching,
+and permission prompts. The larger
+[`opencode_cockpit/`](https://github.com/iamudesharma/opencode_sdk_dart/tree/main/opencode_cockpit)
+workbench adds project tabs, a session tree, files and git panels, session
+diffs, worktree management, a statistics dashboard, and real PTY terminals.
 
-A typed-effect adapter lives in [`opencode_effect/`](opencode_effect/README.md):
-the SDK stays a plain, generated, dependency-light client, while every
+A typed-effect adapter lives in
+[`opencode_effect`](https://pub.dev/packages/opencode_effect): the SDK stays a
+plain, generated, dependency-light client, while every
 operation can be bound as a lazy `Effect` on `effect_core` — one sealed error
 family, interruption that aborts in-flight requests, scoped client lifetime,
 pull streams for events and turns, and read-only retry schedules. All four
@@ -24,11 +26,19 @@ consumer projects use it at their service/controller boundary.
 
 ## Highlights
 
-- **Typed resources** for all 29 API groups — `client.session`,
-  `client.pty`, `client.mcp`, `client.permission`, `client.vcs`, and more.
-- **438 generated declarations**: sealed unions with exhaustive `switch`
+- **Typed resources** for all 32 API groups — `client.session`,
+  `client.pty`, `client.mcp`, `client.permission`, `client.vcs`, plus the new
+  `client.voice`, `client.usage`, and `client.experimental` (artifacts,
+  schedules, jobs, media) groups.
+- **813 generated declarations**: sealed unions with exhaustive `switch`
   support, branded scalar types (`extension type SessionID(String)`), real
   Dart enums with wire mapping, and data classes with `fromJson`/`toJson`.
+- **Event filtering**: `client.event.subscribe(types: ...)` narrows the shared
+  stream locally while preserving `server.connected` replay for late
+  subscribers.
+- **Text, image, and decision generation** through `client.generate`, plus
+  voice sessions, artifact/schedule management, usage limits, plugin GUI
+  bundles, heap dumps, and filesystem watch events.
 - **Structured errors**: every `_tag`-encoded error becomes a typed exception
   (`SessionNotFoundError`, `RpcError`, ...) carrying the HTTP status code.
 - **One lazy event connection** shared by native events and plugin RPC, with
@@ -48,8 +58,7 @@ consumer projects use it at their service/controller boundary.
 
 ```yaml
 dependencies:
-  opencode_sdk_dart:
-    path: ../opencode_sdk_dart
+  opencode_sdk_dart: ^0.2.0
 ```
 
 ```dart
@@ -160,6 +169,9 @@ by one lazily opened connection:
 
 - no connection opens until the first listener subscribes;
 - late subscribers immediately receive the `server.connected` marker;
+- `types` narrows a subscriber to exact names or prefix wildcards such as
+  `session.*` and `rpc.*`; filtering happens locally because all subscribers
+  share one upstream connection;
 - cancelling one subscription leaves the others running; the last one closes
   the connection;
 - slow consumers buffer up to 4096 events and then fail their stream;
@@ -167,12 +179,14 @@ by one lazily opened connection:
   a new subscription opens a fresh connection.
 
 ```dart
-final subscription = client.event.subscribe().listen((event) {
+final subscription = client.event
+    .subscribe(types: ['session.idle', 'session.text.delta', 'rpc.*'])
+    .listen((event) {
   switch (event.type) {
     case 'server.connected':
       print('connected');
-    case 'session.updated':
-      print(event.data);
+    case 'session.idle':
+      print('turn finished');
   }
 });
 ```
@@ -268,6 +282,22 @@ await socket.close();
 
 `client.persistentPty.connectSocket(...)` mirrors the persistent PTY handshake
 (with `cursor`, `role`, `attachmentID`, and `takeover`).
+
+## Client-hosted MCP
+
+The experimental `client-mcp` endpoint upgrades to a WebSocket where the
+client hosts an MCP server for the duration of the connection:
+
+```dart
+final socket = await client.mcp.connectClientSocket(name: 'my-tools');
+socket.jsonRpc.listen(print);
+socket.send({
+  'jsonrpc': '2.0',
+  'id': 1,
+  'method': 'initialize',
+  'params': <String, Object?>{},
+});
+```
 
 ## Errors
 
@@ -395,7 +425,27 @@ cancellation, SSE framing, multiplexer semantics, RPC calls and events,
 resource envelopes, and service discovery. `tool/live_smoke.dart` validates
 discovery, typed resources, and SSE against a live service.
 
-## Layout
+## Publishing
+
+Publish in dependency order from a clean checkout:
+
+```sh
+dart run tool/publish.dart sdk --dry-run
+dart run tool/publish.dart sdk
+dart run tool/publish.dart effect
+dart run tool/publish.dart genkit
+```
+
+`tool/publish.dart` stages the sibling packages outside the repository so the
+root `.pubignore` does not hide them, and drops their local
+`pubspec_overrides.yaml` files before uploading. The `sdk` target publishes
+from the repository root. `dart pub publish` prompts for pub.dev authorization
+on first use.
+
+## Repository layout
+
+The published SDK contains `lib/`, `example/`, `test/`, and `tool/`. The
+remaining directories are separate packages and apps in the repository:
 
 ```text
 lib/
@@ -405,7 +455,7 @@ lib/
   src/pty/                        # WebSocket helpers + resource extensions
   src/session/                    # turn streaming + pagination helpers
   src/service/                    # local background service management
-  src/generated/                  # models + 28 resources + client (generated)
+  src/generated/                  # models + 31 resources + client (generated)
 opencode_effect/                  # effect_core adapter: typed effects, layers,
                                   #   pull streams, scoped client lifetime
 chat_app/                         # chat client: macOS + phone web
@@ -422,11 +472,15 @@ tool/
   lan_host.dart                   # LAN host: serves the web builds + proxies the API
   live_smoke.dart                 # live read-only smoke test
   make_icons.dart                 # branded app icons for web + macOS
+  publish.dart                    # publishes the SDK and sibling packages
 openapi/openapi.json              # pinned contract snapshot
 ```
 
-The two packages at the end depend on this SDK through `path:` dependencies and
-have their own READMEs with setup and usage details.
+`opencode_effect` and `genkit_opencode_custom` are published separately and
+depend on this SDK through hosted version constraints; their
+`pubspec_overrides.yaml` files point them at this checkout during development.
+The client apps (`chat_app`, `opencode_cockpit`, and `gym_coach`) are not
+published.
 
 ## Notes on divergence from `@opencode/client`
 

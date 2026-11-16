@@ -84,6 +84,7 @@ final class PersistentPtyInfo {
     required this.pid,
     this.exitCode,
     required this.sessionID,
+    required this.userTitle,
     required this.foregroundProcess,
     required this.size,
     required this.output,
@@ -100,6 +101,7 @@ final class PersistentPtyInfo {
         pid: decodeInt(json, 'pid'),
         exitCode: decodeOptionalInt(json, 'exitCode'),
         sessionID: SessionID.fromJson(asJsonString(json['sessionID'])),
+        userTitle: decodeOptionalString(json, 'userTitle'),
         foregroundProcess: decodeOptionalString(json, 'foregroundProcess'),
         size: PersistentPtyInfoSize.fromJson(asJsonMap(json['size'])),
         output: PersistentPtyInfoOutput.fromJson(asJsonMap(json['output'])),
@@ -114,6 +116,7 @@ final class PersistentPtyInfo {
   final int pid;
   final int? exitCode;
   final SessionID sessionID;
+  final String? userTitle;
   final String? foregroundProcess;
   final PersistentPtyInfoSize size;
   final PersistentPtyInfoOutput output;
@@ -128,6 +131,7 @@ final class PersistentPtyInfo {
         'pid': pid,
         if (exitCode != null) 'exitCode': exitCode!,
         'sessionID': sessionID,
+        if (userTitle != null) 'userTitle': userTitle!,
         if (foregroundProcess != null) 'foregroundProcess': foregroundProcess!,
         'size': size.toJson(),
         'output': output.toJson(),
@@ -203,21 +207,27 @@ final class PersistentPtySnapshot {
 final class PersistentPtyUpdateInput {
   const PersistentPtyUpdateInput({
     this.attachmentID,
-    required this.size,
+    this.size,
+    this.title,
   });
 
   factory PersistentPtyUpdateInput.fromJson(Map<String, Object?> json) =>
       PersistentPtyUpdateInput(
         attachmentID: decodeOptionalString(json, 'attachmentID'),
-        size: PersistentPtyUpdateInputSize.fromJson(asJsonMap(json['size'])),
+        size: json['size'] == null
+            ? null
+            : PersistentPtyUpdateInputSize.fromJson(asJsonMap(json['size'])),
+        title: decodeOptionalString(json, 'title'),
       );
 
   final String? attachmentID;
-  final PersistentPtyUpdateInputSize size;
+  final PersistentPtyUpdateInputSize? size;
+  final String? title;
 
   Map<String, Object?> toJson() => <String, Object?>{
         if (attachmentID != null) 'attachmentID': attachmentID!,
-        'size': size.toJson(),
+        if (size != null) 'size': size!.toJson(),
+        if (title != null) 'title': title!,
       };
 }
 

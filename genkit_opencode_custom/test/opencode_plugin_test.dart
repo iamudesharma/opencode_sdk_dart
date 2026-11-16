@@ -89,7 +89,7 @@ void main() {
       expect(result.finishReason, FinishReason.stop);
 
       final generate = host.requests.firstWhere(
-        (r) => r.url.path == '/api/experimental/generate',
+        (r) => r.url.path == '/api/experimental/generate/text',
       );
       expect(generate.method, 'POST');
       final body = host.bodies[host.requests.indexOf(generate)];
@@ -120,7 +120,7 @@ void main() {
         ],
       );
       final generate = host.requests.firstWhere(
-        (r) => r.url.path == '/api/experimental/generate',
+        (r) => r.url.path == '/api/experimental/generate/text',
       );
       final prompt =
           (host.bodies[host.requests.indexOf(generate)]['prompt'] as String);
@@ -275,7 +275,7 @@ void main() {
       expect(result.output?.answer, '42');
 
       final generate = host.requests.firstWhere(
-        (r) => r.url.path == '/api/experimental/generate',
+        (r) => r.url.path == '/api/experimental/generate/text',
       );
       final prompt =
           host.bodies[host.requests.indexOf(generate)]['prompt'] as String;
@@ -390,7 +390,7 @@ void main() {
     group('error surfacing', () {
       test('maps server failures to Genkit statuses', () async {
         host.failRequest = (request) =>
-            request.url.path == '/api/experimental/generate' ? 500 : null;
+            request.url.path == '/api/experimental/generate/text' ? 500 : null;
 
         final result = await ai.generate<String, OpenCodeModelOptions>(
           model: openCode.model('kimi-k2.6'),
@@ -424,7 +424,7 @@ void main() {
       test('generation writes are never retried', () async {
         var attempts = 0;
         host.failRequest = (request) {
-          if (request.url.path == '/api/experimental/generate') {
+          if (request.url.path == '/api/experimental/generate/text') {
             attempts++;
             return 503;
           }
@@ -448,7 +448,7 @@ void main() {
       test('cancelling a generation interrupts the request', () async {
         final gate = Completer<void>();
         host.hold = (request) async {
-          if (request.url.path == '/api/experimental/generate') {
+          if (request.url.path == '/api/experimental/generate/text') {
             await gate.future;
           }
         };
@@ -462,7 +462,7 @@ void main() {
 
         await _waitUntil(
           () => host.requests.any(
-            (request) => request.url.path == '/api/experimental/generate',
+            (request) => request.url.path == '/api/experimental/generate/text',
           ),
         );
         controller.cancel();

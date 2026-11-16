@@ -7,3 +7,38 @@ opencode_effect/
 genkit_opencode_custom/
 # The pinned OpenAPI snapshot is only needed for regeneration.
 openapi/
+
+# Pub reads .pubignore *instead of* .gitignore for this directory, so repeat
+# the local-state, build-output, and secret rules that must never be published.
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.genkit/
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+**/macos/.symlinks/
+**/macos/Runner.xcworkspace/xcuserdata/
+**/macos/Runner.xcodeproj/xcuserdata/
+**/macos/Runner.xcworkspace/xcshareddata/
+DerivedData/
+*.xcuserstate
+.idea/
+.vscode/
+*.iml
+.DS_Store
+.AppleDouble
+.LSOverride
+.env
+.env.*
+*.local
+secrets.json
+service.json
+credentials.json
+*.pem
+*.key
+*.p12
+*.provisionprofile
+*.mobileprovision
+coverage/
